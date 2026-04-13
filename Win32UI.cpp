@@ -1,0 +1,1216 @@
+#include "UI.h"
+
+#include <windows.h>
+#include <commctrl.h>
+#include <uxtheme.h>
+#include <algorithm>
+#include <cstdio>
+#include <cstdlib>
+#include <sstream>
+#include <string>
+#include <vector>
+
+#include "Config.h"
+#include "Detection.h"
+#include "Logger.h"
+#include "Renderer.h"
+#include "Version.h"
+#include "VideoSource.h"
+
+#pragma comment(lib, "comctl32.lib")
+#pragma comment(lib, "uxtheme.lib")
+
+LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+
+namespace
+{
+    constexpr int kMargin = 12;
+    constexpr int kGap = 8;
+    constexpr int kTopBarHeight = 42;
+    constexpr int kControlHeight = 68;
+    constexpr int kLogToolbarHeight = 28;
+
+    enum ControlId
+    {
+        IDC_SETTINGS_BUTTON = 1001,
+        IDC_DEVICE_COMBO,
+        IDC_REFRESH_BUTTON,
+        IDC_RENDERER_STATUS,
+        IDC_NEXT_CUE_BUTTON,
+        IDC_PREVIEW_CHECK,
+        IDC_PREVIEW_WINDOW,
+        IDC_AUTOSCROLL_CHECK,
+        IDC_CLEAR_LOG_BUTTON,
+        IDC_LOG_EDIT,
+        IDC_SETTINGS_TAB,
+        IDC_SETTINGS_TAB_DETECTION,
+        IDC_SETTINGS_TAB_ENGINE,
+        IDC_SETTINGS_TAB_TEMPLATES,
+        IDC_DETECTION_ENABLED_CHECK,
+        IDC_DETECT_THRESHOLD_SLIDER,
+        IDC_RESET_THRESHOLD_SLIDER,
+        IDC_COOLDOWN_SLIDER,
+        IDC_DETECT_THRESHOLD_VALUE,
+        IDC_RESET_THRESHOLD_VALUE,
+        IDC_COOLDOWN_VALUE,
+        IDC_VIZ_IP_EDIT,
+        IDC_VIZ_PORT_EDIT,
+        IDC_CMD_ON_EDIT,
+        IDC_CMD_OFF_EDIT,
+        IDC_SETTINGS_SAVE_BUTTON,
+        IDC_SETTINGS_STATUS,
+        IDC_TEMPLATES_PLACEHOLDER
+    };
+
+    struct UIContext
+    {
+        AppState* state = nullptr;
+        HINSTANCE instance = nullptr;
+        HWND mainWindow = nullptr;
+        HWND settingsWindow = nullptr;
+
+        HFONT font = nullptr;
+        HFONT sectionFont = nullptr;
+        HFONT titleFont = nullptr;
+
+        HBRUSH appBrush = nullptr;
+        HBRUSH headerBrush = nullptr;
+        HBRUSH cardBrush = nullptr;
+        HBRUSH panelBrush = nullptr;
+        HBRUSH previewBrush = nullptr;
+
+        HWND headerLabel = nullptr;
+        HWND settingsButton = nullptr;
+        HWND deviceLabel = nullptr;
+        HWND deviceCombo = nullptr;
+        HWND refreshButton = nullptr;
+        HWND rendererLabel = nullptr;
+        HWND rendererStatus = nullptr;
+        HWND nextCueButton = nullptr;
+        HWND previewCheck = nullptr;
+        HWND previewWindow = nullptr;
+        HWND autoScrollCheck = nullptr;
+        HWND clearLogButton = nullptr;
+        HWND logEdit = nullptr;
+
+        HWND settingsTab = nullptr;
+        HWND settingsTabDetection = nullptr;
+        HWND settingsTabEngine = nullptr;
+        HWND settingsTabTemplates = nullptr;
+        HWND detectionEnabledCheck = nullptr;
+        HWND detectThresholdLabel = nullptr;
+        HWND detectThresholdSlider = nullptr;
+        HWND detectThresholdValue = nullptr;
+        HWND resetThresholdLabel = nullptr;
+        HWND resetThresholdSlider = nullptr;
+        HWND resetThresholdValue = nullptr;
+        HWND cooldownLabel = nullptr;
+        HWND cooldownSlider = nullptr;
+        HWND cooldownValue = nullptr;
+
+        HWND vizIpLabel = nullptr;
+        HWND vizIpEdit = nullptr;
+        HWND vizPortLabel = nullptr;
+        HWND vizPortEdit = nullptr;
+        HWND cmdOnLabel = nullptr;
+        HWND cmdOnEdit = nullptr;
+        HWND cmdOffLabel = nullptr;
+        HWND cmdOffEdit = nullptr;
+        HWND settingsStatus = nullptr;
+        HWND saveButton = nullptr;
+        HWND templatesPlaceholder = nullptr;
+
+        bool lastVizOk = true;
+        int currentSettingsTab = 0;
+        size_t lastLogCount = 0;
+        std::string lastLogTail;
+        std::string deviceSignature;
+
+        RECT headerBand{};
+        RECT controlCard{};
+        RECT previewCard{};
+        RECT logCard{};
+        RECT settingsPanel{};
+    };
+
+    UIContext g_ui;
+    void SetControlFont(HWND hwnd)
+    {
+        if (hwnd && g_ui.font)
+            SendMessage(hwnd, WM_SETFONT, reinterpret_cast<WPARAM>(g_ui.font), TRUE);
+    }
+
+    void SetControlFont(HWND hwnd, HFONT font)
+    {
+        if (hwnd && font)
+            SendMessage(hwnd, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+    }
+
+    HWND CreateControlA(
+        DWORD exStyle,
+        const char* className,
+        const char* text,
+        DWORD style,
+        int id,
+        HWND parent)
+    {
+        HWND hwnd = CreateWindowExA(
+            exStyle,
+            className,
+            text,
+            style,
+            0,
+            0,
+            0,
+            0,
+            parent,
+            reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
+            g_ui.instance,
+            nullptr);
+        SetControlFont(hwnd);
+        return hwnd;
+    }
+
+    HWND CreateButtonA(const char* text, int id, HWND parent, bool ownerDraw)
+    {
+        return CreateControlA(
+            0,
+            "BUTTON",
+            text,
+            WS_CHILD | WS_VISIBLE | (ownerDraw ? BS_OWNERDRAW : BS_PUSHBUTTON),
+            id,
+            parent);
+    }
+
+    COLORREF AppBgColor() { return RGB(241, 245, 249); }
+    COLORREF HeaderBgColor() { return RGB(16, 28, 43); }
+    COLORREF CardBgColor() { return RGB(255, 255, 255); }
+    COLORREF CardBorderColor() { return RGB(214, 223, 233); }
+    COLORREF AccentColor() { return RGB(27, 94, 181); }
+    COLORREF AccentHoverColor() { return RGB(18, 78, 156); }
+    COLORREF SuccessColor() { return RGB(21, 128, 61); }
+    COLORREF DangerColor() { return RGB(185, 28, 28); }
+    COLORREF MutedTextColor() { return RGB(89, 100, 116); }
+    COLORREF BodyTextColor() { return RGB(30, 41, 59); }
+    COLORREF PreviewFrameColor() { return RGB(11, 17, 25); }
+
+    void FillRoundedRect(HDC hdc, const RECT& rect, COLORREF fillColor, COLORREF borderColor)
+    {
+        HBRUSH brush = CreateSolidBrush(fillColor);
+        HPEN pen = CreatePen(PS_SOLID, 1, borderColor);
+        HGDIOBJ oldBrush = SelectObject(hdc, brush);
+        HGDIOBJ oldPen = SelectObject(hdc, pen);
+        RoundRect(hdc, rect.left, rect.top, rect.right, rect.bottom, 14, 14);
+        SelectObject(hdc, oldBrush);
+        SelectObject(hdc, oldPen);
+        DeleteObject(brush);
+        DeleteObject(pen);
+    }
+
+    void DrawSectionLabel(HDC hdc, const RECT& rect, const wchar_t* text)
+    {
+        SetBkMode(hdc, TRANSPARENT);
+        SetTextColor(hdc, BodyTextColor());
+        HFONT oldFont = reinterpret_cast<HFONT>(SelectObject(hdc, g_ui.sectionFont ? g_ui.sectionFont : g_ui.font));
+        DrawTextW(hdc, text, -1, const_cast<RECT*>(&rect), DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+        SelectObject(hdc, oldFont);
+    }
+
+    std::string FormatFloat(float value)
+    {
+        char buffer[32] = {};
+        sprintf_s(buffer, "%.2f", value);
+        return buffer;
+    }
+
+    int ClampInt(int value, int minValue, int maxValue)
+    {
+        return std::max(minValue, std::min(maxValue, value));
+    }
+
+    int ThresholdToSlider(float value, int minValue, int maxValue)
+    {
+        return ClampInt(static_cast<int>(value * 100.0f + 0.5f), minValue, maxValue);
+    }
+
+    float SliderToThreshold(HWND hwnd, int minValue, int maxValue)
+    {
+        const int pos = ClampInt(static_cast<int>(SendMessageA(hwnd, TBM_GETPOS, 0, 0)), minValue, maxValue);
+        return static_cast<float>(pos) / 100.0f;
+    }
+
+    int SliderToInt(HWND hwnd, int minValue, int maxValue)
+    {
+        return ClampInt(static_cast<int>(SendMessageA(hwnd, TBM_GETPOS, 0, 0)), minValue, maxValue);
+    }
+
+    std::string GetWindowTextString(HWND hwnd)
+    {
+        const int length = GetWindowTextLengthA(hwnd);
+        std::string text(length + 1, '\0');
+        if (length > 0)
+            GetWindowTextA(hwnd, &text[0], length + 1);
+        text.resize(length);
+        return text;
+    }
+
+    void SetCheckState(HWND hwnd, bool checked)
+    {
+        SendMessageA(hwnd, BM_SETCHECK, checked ? BST_CHECKED : BST_UNCHECKED, 0);
+    }
+
+    bool GetCheckState(HWND hwnd)
+    {
+        return SendMessageA(hwnd, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    }
+
+    int ParseIntOrDefault(HWND hwnd, int fallback, int minValue, int maxValue)
+    {
+        std::string text = GetWindowTextString(hwnd);
+        if (text.empty())
+            return fallback;
+
+        char* end = nullptr;
+        const long parsed = strtol(text.c_str(), &end, 10);
+        if (end == text.c_str())
+            return fallback;
+        return std::max(minValue, std::min(maxValue, static_cast<int>(parsed)));
+    }
+
+    void SetEditText(HWND hwnd, const std::string& text)
+    {
+        SetWindowTextA(hwnd, text.c_str());
+    }
+
+    void SetEditText(HWND hwnd, const char* text)
+    {
+        SetWindowTextA(hwnd, text);
+    }
+
+    void UpdateDetectionSliderLabels()
+    {
+        SetWindowTextA(g_ui.detectThresholdValue, FormatFloat(SliderToThreshold(g_ui.detectThresholdSlider, 10, 99)).c_str());
+        SetWindowTextA(g_ui.resetThresholdValue, FormatFloat(SliderToThreshold(g_ui.resetThresholdSlider, 5, 95)).c_str());
+        SetWindowTextA(g_ui.cooldownValue, std::to_string(SliderToInt(g_ui.cooldownSlider, 100, 10000)).c_str());
+    }
+
+    std::string BuildDeviceSignature(const AppState& state)
+    {
+        std::ostringstream oss;
+        oss << state.selectedDeviceListIndex << "|";
+        for (const auto& dev : state.availableDevices)
+            oss << static_cast<int>(dev.kind) << ":" << dev.id << ":" << dev.displayName << "|";
+        return oss.str();
+    }
+
+    void SyncSettingsFromState(const AppState& state)
+    {
+        SetCheckState(g_ui.detectionEnabledCheck, state.detectionEnabled);
+        SendMessageA(g_ui.detectThresholdSlider, TBM_SETPOS, TRUE, ThresholdToSlider(state.detectThreshold, 10, 99));
+        SendMessageA(g_ui.resetThresholdSlider, TBM_SETPOS, TRUE, ThresholdToSlider(state.resetThreshold, 5, 95));
+        SendMessageA(g_ui.cooldownSlider, TBM_SETPOS, TRUE, ClampInt(state.cooldownMs, 100, 10000));
+        UpdateDetectionSliderLabels();
+        SetEditText(g_ui.vizIpEdit, state.vizIp);
+        SetEditText(g_ui.vizPortEdit, std::to_string(state.vizPort));
+        SetEditText(g_ui.cmdOnEdit, state.cmdOn);
+        SetEditText(g_ui.cmdOffEdit, state.cmdOff);
+    }
+
+    void SaveSettingsToState(AppState& state)
+    {
+        state.detectionEnabled = GetCheckState(g_ui.detectionEnabledCheck);
+        state.detectThreshold = SliderToThreshold(g_ui.detectThresholdSlider, 10, 99);
+        state.resetThreshold = SliderToThreshold(g_ui.resetThresholdSlider, 5, 95);
+        state.cooldownMs = SliderToInt(g_ui.cooldownSlider, 100, 10000);
+        state.vizPort = ParseIntOrDefault(g_ui.vizPortEdit, state.vizPort, 1, 65535);
+
+        strncpy_s(state.vizIp, GetWindowTextString(g_ui.vizIpEdit).c_str(), _TRUNCATE);
+        strncpy_s(state.cmdOn, GetWindowTextString(g_ui.cmdOnEdit).c_str(), _TRUNCATE);
+        strncpy_s(state.cmdOff, GetWindowTextString(g_ui.cmdOffEdit).c_str(), _TRUNCATE);
+    }
+
+    void ShowSettingsWindow(const AppState& state)
+    {
+        SyncSettingsFromState(state);
+
+        RECT mainRect{};
+        GetWindowRect(g_ui.mainWindow, &mainRect);
+        SetWindowPos(
+            g_ui.settingsWindow,
+            nullptr,
+            mainRect.left + 40,
+            mainRect.top + 40,
+            720,
+            470,
+            SWP_NOZORDER | SWP_NOACTIVATE);
+        ShowWindow(g_ui.settingsWindow, SW_SHOW);
+        SetForegroundWindow(g_ui.settingsWindow);
+    }
+
+    void UpdateRendererStatus(const AppState& state)
+    {
+        std::ostringstream mainText;
+        mainText << state.vizIp << ":" << state.vizPort << " ["
+                 << (state.lastVizOk ? "Connected" : state.lastVizMsg) << "]";
+        SetWindowTextA(g_ui.rendererStatus, mainText.str().c_str());
+
+        std::ostringstream settingsText;
+        settingsText << "Status: " << state.vizIp << ":" << state.vizPort << " ["
+                     << (state.lastVizOk ? "OK" : state.lastVizMsg) << "]";
+        SetWindowTextA(g_ui.settingsStatus, settingsText.str().c_str());
+
+        g_ui.lastVizOk = state.lastVizOk;
+    }
+
+    void UpdateNextCueButton(const AppState& state)
+    {
+        SetWindowTextA(
+            g_ui.nextCueButton,
+            state.cueState == CueState::WIPER_IN ? "NEXT CUE: WIPER IN" : "NEXT CUE: WIPER OUT");
+    }
+
+    void UpdateLogView(const AppState& state)
+    {
+        const size_t logCount = g_logs.size();
+        const std::string tail = logCount > 0 ? g_logs.back() : std::string();
+        if (logCount == g_ui.lastLogCount && tail == g_ui.lastLogTail)
+            return;
+
+        std::string joined;
+        for (size_t i = 0; i < g_logs.size(); ++i)
+        {
+            joined += g_logs[i];
+            if (i + 1 < g_logs.size())
+                joined += "\r\n";
+        }
+
+        SetWindowTextA(g_ui.logEdit, joined.c_str());
+        if (state.autoScrollLog)
+        {
+            SendMessageA(g_ui.logEdit, EM_SETSEL, static_cast<WPARAM>(joined.size()), static_cast<LPARAM>(joined.size()));
+            SendMessageA(g_ui.logEdit, EM_SCROLLCARET, 0, 0);
+        }
+
+        g_ui.lastLogCount = logCount;
+        g_ui.lastLogTail = tail;
+    }
+
+    void UpdateDeviceList(const AppState& state)
+    {
+        const std::string signature = BuildDeviceSignature(state);
+        if (signature == g_ui.deviceSignature)
+            return;
+
+        SendMessageA(g_ui.deviceCombo, CB_RESETCONTENT, 0, 0);
+        for (const auto& dev : state.availableDevices)
+        {
+            std::string label = "[" + std::string(VideoSourceKindToString(dev.kind)) + "] " + dev.displayName;
+            SendMessageA(g_ui.deviceCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+        }
+
+        if (state.selectedDeviceListIndex >= 0 &&
+            state.selectedDeviceListIndex < static_cast<int>(state.availableDevices.size()))
+        {
+            SendMessageA(g_ui.deviceCombo, CB_SETCURSEL, state.selectedDeviceListIndex, 0);
+        }
+        else
+        {
+            SendMessageA(g_ui.deviceCombo, CB_SETCURSEL, static_cast<WPARAM>(-1), 0);
+        }
+
+        g_ui.deviceSignature = signature;
+    }
+
+    void LayoutMainWindow(int width, int height)
+    {
+        const int contentLeft = kMargin;
+        const int contentTop = kMargin;
+        const int contentWidth = std::max(0, width - (kMargin * 2));
+        g_ui.headerBand = { 0, 0, width, 88 };
+
+        MoveWindow(g_ui.headerLabel, contentLeft + 8, contentTop + 6, std::max(0, contentWidth - 180), 28, TRUE);
+        MoveWindow(g_ui.settingsButton, width - kMargin - 126, contentTop + 2, 118, 34, TRUE);
+
+        const int controlTop = contentTop + 54;
+        g_ui.controlCard = { contentLeft, controlTop, width - kMargin, controlTop + 124 };
+        MoveWindow(g_ui.deviceLabel, contentLeft + 20, controlTop + 18, 100, 22, TRUE);
+        MoveWindow(g_ui.deviceCombo, contentLeft + 126, controlTop + 14, std::max(180, contentWidth - 264), 240, TRUE);
+        MoveWindow(g_ui.refreshButton, width - kMargin - 112, controlTop + 12, 92, 34, TRUE);
+
+        MoveWindow(g_ui.rendererLabel, contentLeft + 20, controlTop + 52, 100, 22, TRUE);
+        MoveWindow(g_ui.rendererStatus, contentLeft + 126, controlTop + 54, contentWidth - 146, 20, TRUE);
+        MoveWindow(g_ui.nextCueButton, contentLeft + 20, controlTop + 78, contentWidth - 40, 34, TRUE);
+
+        const int previewTop = controlTop + 136;
+        const int availableHeight = std::max(120, height - previewTop - kMargin);
+        const int previewSectionHeight = std::max(250, static_cast<int>(availableHeight * 0.50f));
+        const int logTop = previewTop + previewSectionHeight + 12;
+        const int logHeight = std::max(120, height - logTop - kMargin);
+        g_ui.previewCard = { contentLeft, previewTop, width - kMargin, previewTop + previewSectionHeight };
+        g_ui.logCard = { contentLeft, logTop, width - kMargin, logTop + logHeight };
+
+        MoveWindow(g_ui.previewCheck, contentLeft + 20, previewTop + 14, 140, 24, TRUE);
+        MoveWindow(g_ui.previewWindow, contentLeft + 20, previewTop + 48, contentWidth - 40, std::max(80, previewSectionHeight - 68), TRUE);
+
+        MoveWindow(g_ui.autoScrollCheck, contentLeft + 20, logTop + 14, 140, 24, TRUE);
+        MoveWindow(g_ui.clearLogButton, width - kMargin - 112, logTop + 10, 92, 32, TRUE);
+        MoveWindow(g_ui.logEdit, contentLeft + 20, logTop + 52, contentWidth - 40, std::max(80, logHeight - 72), TRUE);
+
+        InvalidateRect(g_ui.mainWindow, nullptr, TRUE);
+    }
+
+    void ShowSettingsTab(int tabIndex)
+    {
+        g_ui.currentSettingsTab = tabIndex;
+        const bool detectionTab = (tabIndex == 0);
+        const bool engineTab = (tabIndex == 1);
+        const bool templatesTab = (tabIndex == 2);
+
+        const HWND detectionControls[] = {
+            g_ui.detectionEnabledCheck,
+            g_ui.detectThresholdLabel,
+            g_ui.detectThresholdSlider,
+            g_ui.detectThresholdValue,
+            g_ui.resetThresholdLabel,
+            g_ui.resetThresholdSlider,
+            g_ui.resetThresholdValue,
+            g_ui.cooldownLabel,
+            g_ui.cooldownSlider,
+            g_ui.cooldownValue
+        };
+        const HWND engineControls[] = {
+            g_ui.vizIpLabel,
+            g_ui.vizIpEdit,
+            g_ui.vizPortLabel,
+            g_ui.vizPortEdit,
+            g_ui.cmdOnLabel,
+            g_ui.cmdOnEdit,
+            g_ui.cmdOffLabel,
+            g_ui.cmdOffEdit,
+            g_ui.settingsStatus
+        };
+
+        for (HWND hwnd : detectionControls)
+            ShowWindow(hwnd, detectionTab ? SW_SHOW : SW_HIDE);
+        for (HWND hwnd : engineControls)
+            ShowWindow(hwnd, engineTab ? SW_SHOW : SW_HIDE);
+        ShowWindow(g_ui.templatesPlaceholder, templatesTab ? SW_SHOW : SW_HIDE);
+        if (g_ui.settingsTabDetection)
+            InvalidateRect(g_ui.settingsTabDetection, nullptr, TRUE);
+        if (g_ui.settingsTabEngine)
+            InvalidateRect(g_ui.settingsTabEngine, nullptr, TRUE);
+        if (g_ui.settingsTabTemplates)
+            InvalidateRect(g_ui.settingsTabTemplates, nullptr, TRUE);
+    }
+
+    void LayoutSettingsWindow(int width, int height)
+    {
+        const int tabsTop = kMargin;
+        const int tabsLeft = kMargin;
+        const int tabWidth = 92;
+        const int tabHeight = 24;
+        MoveWindow(g_ui.settingsTabDetection, tabsLeft, tabsTop, tabWidth, tabHeight, TRUE);
+        MoveWindow(g_ui.settingsTabEngine, tabsLeft + tabWidth + 6, tabsTop, tabWidth, tabHeight, TRUE);
+        MoveWindow(g_ui.settingsTabTemplates, tabsLeft + (tabWidth + 6) * 2, tabsTop, tabWidth + 10, tabHeight, TRUE);
+
+        RECT panelRect{ kMargin, tabsTop + tabHeight + 8, width - kMargin, std::max(tabsTop + tabHeight + 120, height - 58) };
+        g_ui.settingsPanel = panelRect;
+        const int left = panelRect.left + 16;
+        const int labelW = 160;
+        const int fieldLeft = left + labelW;
+        const int valueW = 76;
+        const int fieldW = std::max(160, static_cast<int>(panelRect.right) - fieldLeft - valueW - 28);
+
+        MoveWindow(g_ui.detectionEnabledCheck, left, panelRect.top + 8, 180, 24, TRUE);
+        MoveWindow(g_ui.detectThresholdLabel, left, panelRect.top + 48, labelW, 20, TRUE);
+        MoveWindow(g_ui.detectThresholdSlider, fieldLeft, panelRect.top + 42, fieldW, 28, TRUE);
+        MoveWindow(g_ui.detectThresholdValue, fieldLeft + fieldW + 10, panelRect.top + 46, valueW, 22, TRUE);
+        MoveWindow(g_ui.resetThresholdLabel, left, panelRect.top + 84, labelW, 20, TRUE);
+        MoveWindow(g_ui.resetThresholdSlider, fieldLeft, panelRect.top + 78, fieldW, 28, TRUE);
+        MoveWindow(g_ui.resetThresholdValue, fieldLeft + fieldW + 10, panelRect.top + 82, valueW, 22, TRUE);
+        MoveWindow(g_ui.cooldownLabel, left, panelRect.top + 120, labelW, 20, TRUE);
+        MoveWindow(g_ui.cooldownSlider, fieldLeft, panelRect.top + 114, fieldW, 28, TRUE);
+        MoveWindow(g_ui.cooldownValue, fieldLeft + fieldW + 10, panelRect.top + 118, valueW, 22, TRUE);
+
+        MoveWindow(g_ui.vizIpLabel, left, panelRect.top + 12, labelW, 20, TRUE);
+        MoveWindow(g_ui.vizIpEdit, fieldLeft, panelRect.top + 8, 220, 24, TRUE);
+        MoveWindow(g_ui.vizPortLabel, left, panelRect.top + 48, labelW, 20, TRUE);
+        MoveWindow(g_ui.vizPortEdit, fieldLeft, panelRect.top + 44, 100, 24, TRUE);
+        MoveWindow(g_ui.cmdOnLabel, left, panelRect.top + 88, labelW, 20, TRUE);
+        MoveWindow(g_ui.cmdOnEdit, fieldLeft, panelRect.top + 84, fieldW, 24, TRUE);
+        MoveWindow(g_ui.cmdOffLabel, left, panelRect.top + 124, labelW, 20, TRUE);
+        MoveWindow(g_ui.cmdOffEdit, fieldLeft, panelRect.top + 120, fieldW, 24, TRUE);
+        MoveWindow(g_ui.settingsStatus, left, panelRect.top + 164, std::max(240, fieldW + labelW), 20, TRUE);
+
+        MoveWindow(g_ui.templatesPlaceholder, left, panelRect.top + 20, std::max(240, fieldW), 60, TRUE);
+        MoveWindow(g_ui.saveButton, width - kMargin - 120, height - kMargin - 30, 120, 30, TRUE);
+
+        InvalidateRect(g_ui.settingsWindow, nullptr, TRUE);
+    }
+
+    void CreateSettingsWindowControls()
+    {
+        g_ui.settingsTabDetection = CreateButtonA("Detection", IDC_SETTINGS_TAB_DETECTION, g_ui.settingsWindow, true);
+        g_ui.settingsTabEngine = CreateButtonA("Engine", IDC_SETTINGS_TAB_ENGINE, g_ui.settingsWindow, true);
+        g_ui.settingsTabTemplates = CreateButtonA("Templates", IDC_SETTINGS_TAB_TEMPLATES, g_ui.settingsWindow, true);
+
+        g_ui.detectionEnabledCheck = CreateControlA(0, "BUTTON", "Detection enabled", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, IDC_DETECTION_ENABLED_CHECK, g_ui.settingsWindow);
+        g_ui.detectThresholdLabel = CreateControlA(0, "STATIC", "Detect Threshold", WS_CHILD | WS_VISIBLE, 0, g_ui.settingsWindow);
+        g_ui.detectThresholdSlider = CreateWindowExA(
+            0,
+            TRACKBAR_CLASSA,
+            "",
+            WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_NOTICKS | WS_TABSTOP,
+            0, 0, 0, 0,
+            g_ui.settingsWindow,
+            reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_DETECT_THRESHOLD_SLIDER)),
+            g_ui.instance,
+            nullptr);
+        g_ui.detectThresholdValue = CreateControlA(0, "STATIC", "", WS_CHILD | WS_VISIBLE | SS_RIGHT, IDC_DETECT_THRESHOLD_VALUE, g_ui.settingsWindow);
+        g_ui.resetThresholdLabel = CreateControlA(0, "STATIC", "Reset Threshold", WS_CHILD | WS_VISIBLE, 0, g_ui.settingsWindow);
+        g_ui.resetThresholdSlider = CreateWindowExA(
+            0,
+            TRACKBAR_CLASSA,
+            "",
+            WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_NOTICKS | WS_TABSTOP,
+            0, 0, 0, 0,
+            g_ui.settingsWindow,
+            reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_RESET_THRESHOLD_SLIDER)),
+            g_ui.instance,
+            nullptr);
+        g_ui.resetThresholdValue = CreateControlA(0, "STATIC", "", WS_CHILD | WS_VISIBLE | SS_RIGHT, IDC_RESET_THRESHOLD_VALUE, g_ui.settingsWindow);
+        g_ui.cooldownLabel = CreateControlA(0, "STATIC", "Cooldown (ms)", WS_CHILD | WS_VISIBLE, 0, g_ui.settingsWindow);
+        g_ui.cooldownSlider = CreateWindowExA(
+            0,
+            TRACKBAR_CLASSA,
+            "",
+            WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_NOTICKS | WS_TABSTOP,
+            0, 0, 0, 0,
+            g_ui.settingsWindow,
+            reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_COOLDOWN_SLIDER)),
+            g_ui.instance,
+            nullptr);
+        g_ui.cooldownValue = CreateControlA(0, "STATIC", "", WS_CHILD | WS_VISIBLE | SS_RIGHT, IDC_COOLDOWN_VALUE, g_ui.settingsWindow);
+
+        g_ui.vizIpLabel = CreateControlA(0, "STATIC", "IP Address", WS_CHILD | WS_VISIBLE, 0, g_ui.settingsWindow);
+        g_ui.vizIpEdit = CreateControlA(WS_EX_CLIENTEDGE, "EDIT", "", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, IDC_VIZ_IP_EDIT, g_ui.settingsWindow);
+        g_ui.vizPortLabel = CreateControlA(0, "STATIC", "Port", WS_CHILD | WS_VISIBLE, 0, g_ui.settingsWindow);
+        g_ui.vizPortEdit = CreateControlA(WS_EX_CLIENTEDGE, "EDIT", "", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, IDC_VIZ_PORT_EDIT, g_ui.settingsWindow);
+        g_ui.cmdOnLabel = CreateControlA(0, "STATIC", "GFX ON command", WS_CHILD | WS_VISIBLE, 0, g_ui.settingsWindow);
+        g_ui.cmdOnEdit = CreateControlA(WS_EX_CLIENTEDGE, "EDIT", "", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, IDC_CMD_ON_EDIT, g_ui.settingsWindow);
+        g_ui.cmdOffLabel = CreateControlA(0, "STATIC", "GFX OFF command", WS_CHILD | WS_VISIBLE, 0, g_ui.settingsWindow);
+        g_ui.cmdOffEdit = CreateControlA(WS_EX_CLIENTEDGE, "EDIT", "", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, IDC_CMD_OFF_EDIT, g_ui.settingsWindow);
+        g_ui.settingsStatus = CreateControlA(0, "STATIC", "", WS_CHILD | WS_VISIBLE, IDC_SETTINGS_STATUS, g_ui.settingsWindow);
+        g_ui.saveButton = CreateButtonA("Save Config", IDC_SETTINGS_SAVE_BUTTON, g_ui.settingsWindow, true);
+        g_ui.templatesPlaceholder = CreateControlA(
+            0,
+            "STATIC",
+            "Template management will be added in a later version.\r\nThis tab remains reserved in 0.9.21.",
+            WS_CHILD | WS_VISIBLE,
+            IDC_TEMPLATES_PLACEHOLDER,
+            g_ui.settingsWindow);
+
+        SetControlFont(g_ui.detectThresholdLabel, g_ui.sectionFont);
+        SetControlFont(g_ui.detectThresholdValue, g_ui.sectionFont);
+        SetControlFont(g_ui.resetThresholdLabel, g_ui.sectionFont);
+        SetControlFont(g_ui.resetThresholdValue, g_ui.sectionFont);
+        SetControlFont(g_ui.cooldownLabel, g_ui.sectionFont);
+        SetControlFont(g_ui.cooldownValue, g_ui.sectionFont);
+        SetControlFont(g_ui.vizIpLabel, g_ui.sectionFont);
+        SetControlFont(g_ui.vizPortLabel, g_ui.sectionFont);
+        SetControlFont(g_ui.cmdOnLabel, g_ui.sectionFont);
+        SetControlFont(g_ui.cmdOffLabel, g_ui.sectionFont);
+        SetControlFont(g_ui.settingsStatus, g_ui.sectionFont);
+
+        SetWindowTheme(g_ui.detectThresholdSlider, L"Explorer", nullptr);
+        SetWindowTheme(g_ui.resetThresholdSlider, L"Explorer", nullptr);
+        SetWindowTheme(g_ui.cooldownSlider, L"Explorer", nullptr);
+        SetWindowTheme(g_ui.vizIpEdit, L"Explorer", nullptr);
+        SetWindowTheme(g_ui.vizPortEdit, L"Explorer", nullptr);
+        SetWindowTheme(g_ui.cmdOnEdit, L"Explorer", nullptr);
+        SetWindowTheme(g_ui.cmdOffEdit, L"Explorer", nullptr);
+
+        SendMessageA(g_ui.detectThresholdSlider, TBM_SETRANGEMIN, FALSE, 10);
+        SendMessageA(g_ui.detectThresholdSlider, TBM_SETRANGEMAX, TRUE, 99);
+        SendMessageA(g_ui.resetThresholdSlider, TBM_SETRANGEMIN, FALSE, 5);
+        SendMessageA(g_ui.resetThresholdSlider, TBM_SETRANGEMAX, TRUE, 95);
+        SendMessageA(g_ui.cooldownSlider, TBM_SETRANGEMIN, FALSE, 100);
+        SendMessageA(g_ui.cooldownSlider, TBM_SETRANGEMAX, TRUE, 10000);
+    }
+
+    void RegisterWindowClasses(HINSTANCE instance)
+    {
+        static bool registered = false;
+        if (registered)
+            return;
+
+        WNDCLASSEXA previewClass = {};
+        previewClass.cbSize = sizeof(previewClass);
+        previewClass.lpfnWndProc = PreviewWndProc;
+        previewClass.hInstance = instance;
+        previewClass.lpszClassName = "VideoAnalyzerPreviewWindow";
+        previewClass.hCursor = LoadCursor(nullptr, IDC_ARROW);
+        previewClass.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+        RegisterClassExA(&previewClass);
+
+        WNDCLASSEXA settingsClass = {};
+        settingsClass.cbSize = sizeof(settingsClass);
+        settingsClass.lpfnWndProc = SettingsWndProc;
+        settingsClass.hInstance = instance;
+        settingsClass.lpszClassName = "VideoAnalyzerSettingsWindow";
+        settingsClass.hCursor = LoadCursor(nullptr, IDC_ARROW);
+        settingsClass.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_BTNFACE + 1);
+        RegisterClassExA(&settingsClass);
+
+        registered = true;
+    }
+
+    void PaintSettingsWindow(HDC hdc)
+    {
+        RECT client{};
+        GetClientRect(g_ui.settingsWindow, &client);
+        FillRect(hdc, &client, g_ui.appBrush);
+
+        RECT footer = client;
+        footer.top = footer.bottom - 56;
+        FillRect(hdc, &footer, g_ui.appBrush);
+
+        if (g_ui.settingsPanel.right > g_ui.settingsPanel.left)
+            FillRoundedRect(hdc, g_ui.settingsPanel, AppBgColor(), CardBorderColor());
+    }
+}
+
+bool UI_Create(HWND hwnd, HINSTANCE instance, AppState& state)
+{
+    g_ui = {};
+    g_ui.mainWindow = hwnd;
+    g_ui.instance = instance;
+    g_ui.state = &state;
+    g_ui.lastVizOk = state.lastVizOk;
+
+    RegisterWindowClasses(instance);
+
+    NONCLIENTMETRICSA metrics = {};
+    metrics.cbSize = sizeof(metrics);
+    SystemParametersInfoA(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0);
+    g_ui.font = CreateFontIndirectA(&metrics.lfMessageFont);
+    LOGFONTA titleLf = metrics.lfMessageFont;
+    titleLf.lfHeight = -22;
+    titleLf.lfWeight = FW_SEMIBOLD;
+    strcpy_s(titleLf.lfFaceName, "Segoe UI");
+    g_ui.titleFont = CreateFontIndirectA(&titleLf);
+    LOGFONTA sectionLf = metrics.lfMessageFont;
+    sectionLf.lfHeight = -13;
+    sectionLf.lfWeight = FW_SEMIBOLD;
+    strcpy_s(sectionLf.lfFaceName, "Segoe UI");
+    g_ui.sectionFont = CreateFontIndirectA(&sectionLf);
+
+    g_ui.appBrush = CreateSolidBrush(AppBgColor());
+    g_ui.headerBrush = CreateSolidBrush(HeaderBgColor());
+    g_ui.cardBrush = CreateSolidBrush(CardBgColor());
+    g_ui.panelBrush = CreateSolidBrush(AppBgColor());
+    g_ui.previewBrush = CreateSolidBrush(PreviewFrameColor());
+
+    g_ui.headerLabel = CreateControlA(0, "STATIC", kAppHeaderTextA, WS_CHILD | WS_VISIBLE, 0, hwnd);
+    SetControlFont(g_ui.headerLabel, g_ui.titleFont);
+    SetWindowTextA(hwnd, kAppWindowTitleA);
+    g_ui.settingsButton = CreateButtonA("Settings", IDC_SETTINGS_BUTTON, hwnd, true);
+    g_ui.deviceLabel = CreateControlA(0, "STATIC", "Video Device", WS_CHILD | WS_VISIBLE, 0, hwnd);
+    g_ui.deviceCombo = CreateControlA(0, "COMBOBOX", "", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, IDC_DEVICE_COMBO, hwnd);
+    g_ui.refreshButton = CreateButtonA("Refresh", IDC_REFRESH_BUTTON, hwnd, true);
+    g_ui.rendererLabel = CreateControlA(0, "STATIC", "Renderer", WS_CHILD | WS_VISIBLE, 0, hwnd);
+    g_ui.rendererStatus = CreateControlA(0, "STATIC", "", WS_CHILD | WS_VISIBLE, IDC_RENDERER_STATUS, hwnd);
+    g_ui.nextCueButton = CreateButtonA("", IDC_NEXT_CUE_BUTTON, hwnd, true);
+    g_ui.previewCheck = CreateControlA(0, "BUTTON", "Preview", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, IDC_PREVIEW_CHECK, hwnd);
+    g_ui.previewWindow = CreateControlA(0, "VideoAnalyzerPreviewWindow", "", WS_CHILD | WS_VISIBLE, IDC_PREVIEW_WINDOW, hwnd);
+    g_ui.autoScrollCheck = CreateControlA(0, "BUTTON", "Auto-scroll", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, IDC_AUTOSCROLL_CHECK, hwnd);
+    g_ui.clearLogButton = CreateButtonA("Clear", IDC_CLEAR_LOG_BUTTON, hwnd, true);
+    g_ui.logEdit = CreateControlA(
+        WS_EX_CLIENTEDGE,
+        "EDIT",
+        "",
+        WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL | ES_LEFT | ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL | ES_READONLY,
+        IDC_LOG_EDIT,
+        hwnd);
+
+    SetControlFont(g_ui.deviceLabel, g_ui.sectionFont);
+    SetControlFont(g_ui.rendererLabel, g_ui.sectionFont);
+
+    g_ui.settingsWindow = CreateWindowExA(
+        WS_EX_APPWINDOW,
+        "VideoAnalyzerSettingsWindow",
+        kAppSettingsWindowTitleA,
+        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_CLIPCHILDREN,
+        CW_USEDEFAULT,
+        CW_USEDEFAULT,
+        720,
+        470,
+        hwnd,
+        nullptr,
+        instance,
+        nullptr);
+
+    if (!g_ui.settingsWindow)
+        return false;
+
+    SendMessageA(g_ui.logEdit, EM_SETLIMITTEXT, 0, 0);
+    SetWindowTheme(g_ui.deviceCombo, L"Explorer", nullptr);
+    SetWindowTheme(g_ui.logEdit, L"Explorer", nullptr);
+    CreateSettingsWindowControls();
+    SyncSettingsFromState(state);
+
+    SetCheckState(g_ui.previewCheck, state.previewEnabled);
+    SetCheckState(g_ui.autoScrollCheck, state.autoScrollLog);
+    UpdateRendererStatus(state);
+    UpdateNextCueButton(state);
+    UpdateDeviceList(state);
+    UpdateLogView(state);
+    ShowSettingsTab(0);
+
+    RECT client{};
+    GetClientRect(hwnd, &client);
+    LayoutMainWindow(client.right - client.left, client.bottom - client.top);
+
+    RECT settingsClient{};
+    GetClientRect(g_ui.settingsWindow, &settingsClient);
+    LayoutSettingsWindow(settingsClient.right - settingsClient.left, settingsClient.bottom - settingsClient.top);
+
+    return true;
+}
+
+void UI_Destroy()
+{
+    Renderer_ClearPreview();
+
+    if (g_ui.settingsWindow)
+    {
+        DestroyWindow(g_ui.settingsWindow);
+        g_ui.settingsWindow = nullptr;
+    }
+
+    if (g_ui.font)
+    {
+        DeleteObject(g_ui.font);
+        g_ui.font = nullptr;
+    }
+    if (g_ui.sectionFont)
+    {
+        DeleteObject(g_ui.sectionFont);
+        g_ui.sectionFont = nullptr;
+    }
+    if (g_ui.titleFont)
+    {
+        DeleteObject(g_ui.titleFont);
+        g_ui.titleFont = nullptr;
+    }
+    if (g_ui.appBrush)
+    {
+        DeleteObject(g_ui.appBrush);
+        g_ui.appBrush = nullptr;
+    }
+    if (g_ui.headerBrush)
+    {
+        DeleteObject(g_ui.headerBrush);
+        g_ui.headerBrush = nullptr;
+    }
+    if (g_ui.cardBrush)
+    {
+        DeleteObject(g_ui.cardBrush);
+        g_ui.cardBrush = nullptr;
+    }
+    if (g_ui.panelBrush)
+    {
+        DeleteObject(g_ui.panelBrush);
+        g_ui.panelBrush = nullptr;
+    }
+    if (g_ui.previewBrush)
+    {
+        DeleteObject(g_ui.previewBrush);
+        g_ui.previewBrush = nullptr;
+    }
+
+    g_ui = {};
+}
+
+void UI_OnSize(int width, int height)
+{
+    LayoutMainWindow(width, height);
+}
+
+bool UI_HandleMainCommand(WPARAM wParam, LPARAM, AppState& state)
+{
+    switch (LOWORD(wParam))
+    {
+    case IDC_SETTINGS_BUTTON:
+        ShowSettingsWindow(state);
+        return true;
+
+    case IDC_DEVICE_COMBO:
+        if (HIWORD(wParam) == CBN_SELCHANGE)
+        {
+            const int selectedIndex = static_cast<int>(SendMessageA(g_ui.deviceCombo, CB_GETCURSEL, 0, 0));
+            if (selectedIndex >= 0 && selectedIndex < static_cast<int>(state.availableDevices.size()))
+            {
+                state.selectedDeviceListIndex = selectedIndex;
+                state.selectedSourceKind = state.availableDevices[selectedIndex].kind;
+                state.cameraIndex = state.availableDevices[selectedIndex].id;
+                state.currentCamera = -1;
+                g_ui.deviceSignature.clear();
+            }
+            return true;
+        }
+        break;
+
+    case IDC_REFRESH_BUTTON:
+        state.deviceListDirty = true;
+        return true;
+
+    case IDC_NEXT_CUE_BUTTON:
+        Detection_FlipCue(state);
+        UpdateNextCueButton(state);
+        return true;
+
+    case IDC_PREVIEW_CHECK:
+        state.previewEnabled = GetCheckState(g_ui.previewCheck);
+        if (!state.previewEnabled)
+            Renderer_ClearPreview();
+        InvalidateRect(g_ui.previewWindow, nullptr, FALSE);
+        return true;
+
+    case IDC_AUTOSCROLL_CHECK:
+        state.autoScrollLog = GetCheckState(g_ui.autoScrollCheck);
+        return true;
+
+    case IDC_CLEAR_LOG_BUTTON:
+        g_logs.clear();
+        g_ui.lastLogCount = 0;
+        g_ui.lastLogTail.clear();
+        SetWindowTextA(g_ui.logEdit, "");
+        return true;
+    }
+
+    return false;
+}
+
+HBRUSH UI_HandleCtlColor(HDC hdc, HWND control)
+{
+    if (control == g_ui.headerLabel)
+    {
+        SetBkMode(hdc, TRANSPARENT);
+        SetTextColor(hdc, RGB(255, 255, 255));
+        return g_ui.headerBrush;
+    }
+
+    if (control == g_ui.vizIpEdit ||
+        control == g_ui.vizPortEdit ||
+        control == g_ui.cmdOnEdit ||
+        control == g_ui.cmdOffEdit)
+    {
+        SetBkMode(hdc, OPAQUE);
+        SetBkColor(hdc, AppBgColor());
+        SetTextColor(hdc, BodyTextColor());
+        return g_ui.panelBrush;
+    }
+
+    if (control == g_ui.rendererStatus || control == g_ui.settingsStatus)
+    {
+        SetBkMode(hdc, TRANSPARENT);
+        SetTextColor(hdc, g_ui.lastVizOk ? SuccessColor() : DangerColor());
+        return (control == g_ui.settingsStatus) ? g_ui.panelBrush : g_ui.cardBrush;
+    }
+
+    if (control == g_ui.templatesPlaceholder)
+    {
+        SetBkMode(hdc, TRANSPARENT);
+        SetTextColor(hdc, MutedTextColor());
+        return g_ui.panelBrush;
+    }
+
+    if (control == g_ui.previewCheck || control == g_ui.autoScrollCheck)
+    {
+        SetBkMode(hdc, TRANSPARENT);
+        SetTextColor(hdc, BodyTextColor());
+        return g_ui.cardBrush;
+    }
+
+    if (control == g_ui.detectionEnabledCheck)
+    {
+        SetBkMode(hdc, TRANSPARENT);
+        SetTextColor(hdc, BodyTextColor());
+        return g_ui.panelBrush;
+    }
+
+    if (control == g_ui.deviceLabel ||
+        control == g_ui.rendererLabel ||
+        control == g_ui.detectThresholdLabel ||
+        control == g_ui.detectThresholdValue ||
+        control == g_ui.resetThresholdLabel ||
+        control == g_ui.resetThresholdValue ||
+        control == g_ui.cooldownLabel ||
+        control == g_ui.cooldownValue ||
+        control == g_ui.vizIpLabel ||
+        control == g_ui.vizPortLabel ||
+        control == g_ui.cmdOnLabel ||
+        control == g_ui.cmdOffLabel)
+    {
+        SetBkMode(hdc, TRANSPARENT);
+        SetTextColor(hdc, BodyTextColor());
+        if (control == g_ui.deviceLabel || control == g_ui.rendererLabel)
+            return g_ui.cardBrush;
+        return g_ui.panelBrush;
+    }
+
+    return g_ui.appBrush;
+}
+
+bool UI_HandleDrawItem(const DRAWITEMSTRUCT& drawItem, const AppState& state)
+{
+    if (drawItem.CtlType != ODT_BUTTON)
+        return false;
+
+    const bool hot = (drawItem.itemState & ODS_HOTLIGHT) != 0;
+    const bool selected = (drawItem.itemState & ODS_SELECTED) != 0;
+    const bool disabled = (drawItem.itemState & ODS_DISABLED) != 0;
+
+    COLORREF fill = CardBgColor();
+    COLORREF border = CardBorderColor();
+    COLORREF text = BodyTextColor();
+
+    switch (drawItem.CtlID)
+    {
+    case IDC_SETTINGS_TAB_DETECTION:
+    case IDC_SETTINGS_TAB_ENGINE:
+    case IDC_SETTINGS_TAB_TEMPLATES:
+    {
+        const int tabIndex =
+            drawItem.CtlID == IDC_SETTINGS_TAB_DETECTION ? 0 :
+            drawItem.CtlID == IDC_SETTINGS_TAB_ENGINE ? 1 : 2;
+        const bool activeTab = g_ui.currentSettingsTab == tabIndex;
+        fill = activeTab ? CardBgColor() : AppBgColor();
+        border = activeTab ? CardBorderColor() : RGB(206, 216, 227);
+        text = activeTab ? BodyTextColor() : MutedTextColor();
+        break;
+    }
+    case IDC_SETTINGS_BUTTON:
+        fill = hot ? RGB(244, 248, 252) : RGB(255, 255, 255);
+        border = hot ? RGB(194, 206, 221) : RGB(214, 223, 233);
+        text = AccentColor();
+        break;
+    case IDC_REFRESH_BUTTON:
+    case IDC_CLEAR_LOG_BUTTON:
+        fill = hot ? RGB(241, 245, 249) : RGB(255, 255, 255);
+        border = hot ? RGB(180, 192, 208) : RGB(203, 213, 225);
+        text = BodyTextColor();
+        break;
+    case IDC_SETTINGS_SAVE_BUTTON:
+        fill = hot ? AccentHoverColor() : AccentColor();
+        border = fill;
+        text = RGB(255, 255, 255);
+        break;
+    case IDC_NEXT_CUE_BUTTON:
+        if (state.cueState == CueState::WIPER_IN)
+        {
+            fill = hot ? RGB(22, 101, 192) : AccentColor();
+            border = fill;
+            text = RGB(255, 255, 255);
+        }
+        else
+        {
+            fill = hot ? RGB(194, 65, 12) : RGB(234, 88, 12);
+            border = fill;
+            text = RGB(255, 255, 255);
+        }
+        break;
+    default:
+        return false;
+    }
+
+    if (disabled)
+    {
+        fill = RGB(226, 232, 240);
+        border = RGB(203, 213, 225);
+        text = RGB(148, 163, 184);
+    }
+
+    RECT rect = drawItem.rcItem;
+    HDC hdc = drawItem.hDC;
+    FillRoundedRect(hdc, rect, fill, border);
+
+    if (selected)
+        OffsetRect(&rect, 0, 1);
+
+    SetBkMode(hdc, TRANSPARENT);
+    SetTextColor(hdc, text);
+    HFONT oldFont = reinterpret_cast<HFONT>(SelectObject(
+        hdc,
+        (drawItem.CtlID == IDC_SETTINGS_BUTTON || drawItem.CtlID == IDC_SETTINGS_TAB_DETECTION ||
+         drawItem.CtlID == IDC_SETTINGS_TAB_ENGINE || drawItem.CtlID == IDC_SETTINGS_TAB_TEMPLATES)
+            ? g_ui.font
+            : (g_ui.sectionFont ? g_ui.sectionFont : g_ui.font)));
+
+    wchar_t caption[256] = {};
+    GetWindowTextW(drawItem.hwndItem, caption, static_cast<int>(std::size(caption)));
+    DrawTextW(hdc, caption, -1, &rect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+    if (drawItem.itemState & ODS_FOCUS)
+    {
+        RECT focusRect = drawItem.rcItem;
+        InflateRect(&focusRect, -4, -4);
+        DrawFocusRect(hdc, &focusRect);
+    }
+
+    SelectObject(hdc, oldFont);
+    return true;
+}
+
+void UI_PaintMain(HDC hdc)
+{
+    RECT client{};
+    GetClientRect(g_ui.mainWindow, &client);
+    FillRect(hdc, &client, g_ui.appBrush);
+
+    FillRect(hdc, &g_ui.headerBand, g_ui.headerBrush);
+
+    FillRoundedRect(hdc, g_ui.controlCard, CardBgColor(), CardBorderColor());
+    FillRoundedRect(hdc, g_ui.previewCard, CardBgColor(), CardBorderColor());
+    FillRoundedRect(hdc, g_ui.logCard, CardBgColor(), CardBorderColor());
+
+    RECT sectionRect = g_ui.previewCard;
+    sectionRect.left += 180;
+    sectionRect.top += 10;
+    sectionRect.bottom = sectionRect.top + 22;
+    DrawSectionLabel(hdc, sectionRect, L"Live Preview");
+
+    sectionRect = g_ui.logCard;
+    sectionRect.left += 180;
+    sectionRect.top += 10;
+    sectionRect.bottom = sectionRect.top + 22;
+    DrawSectionLabel(hdc, sectionRect, L"Event Log");
+}
+
+void UI_SyncState(const AppState& state)
+{
+    SetCheckState(g_ui.previewCheck, state.previewEnabled);
+    SetCheckState(g_ui.autoScrollCheck, state.autoScrollLog);
+    UpdateRendererStatus(state);
+    UpdateNextCueButton(state);
+    UpdateDeviceList(state);
+    UpdateLogView(state);
+}
+
+void UI_UpdatePreview(const cv::Mat& bgrFrame)
+{
+    Renderer_SetPreviewFrame(bgrFrame);
+    InvalidateRect(g_ui.previewWindow, nullptr, FALSE);
+}
+
+void UI_ClearPreview()
+{
+    Renderer_ClearPreview();
+    InvalidateRect(g_ui.previewWindow, nullptr, FALSE);
+}
+
+LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    switch (msg)
+    {
+    case WM_ERASEBKGND:
+        return 1;
+
+    case WM_PAINT:
+    {
+        PAINTSTRUCT ps{};
+        HDC hdc = BeginPaint(hwnd, &ps);
+        RECT rect{};
+        GetClientRect(hwnd, &rect);
+        Renderer_PaintPreview(hdc, rect, g_ui.state ? g_ui.state->previewEnabled : false);
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
+    }
+
+    return DefWindowProcA(hwnd, msg, wParam, lParam);
+}
+
+LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    switch (msg)
+    {
+    case WM_ERASEBKGND:
+        return 1;
+
+    case WM_PAINT:
+    {
+        PAINTSTRUCT ps{};
+        HDC hdc = BeginPaint(hwnd, &ps);
+        PaintSettingsWindow(hdc);
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
+
+    case WM_SHOWWINDOW:
+        if (wParam && g_ui.state)
+            SyncSettingsFromState(*g_ui.state);
+        break;
+
+    case WM_SIZE:
+        LayoutSettingsWindow(LOWORD(lParam), HIWORD(lParam));
+        return 0;
+
+    case WM_DRAWITEM:
+        if (g_ui.state && UI_HandleDrawItem(*reinterpret_cast<DRAWITEMSTRUCT*>(lParam), *g_ui.state))
+            return TRUE;
+        break;
+
+    case WM_COMMAND:
+        switch (LOWORD(wParam))
+        {
+        case IDC_SETTINGS_TAB_DETECTION:
+            ShowSettingsTab(0);
+            return 0;
+        case IDC_SETTINGS_TAB_ENGINE:
+            ShowSettingsTab(1);
+            return 0;
+        case IDC_SETTINGS_TAB_TEMPLATES:
+            ShowSettingsTab(2);
+            return 0;
+        }
+        if (LOWORD(wParam) == IDC_SETTINGS_SAVE_BUTTON && g_ui.state)
+        {
+            SaveSettingsToState(*g_ui.state);
+            Config_Save(*g_ui.state);
+            SyncSettingsFromState(*g_ui.state);
+            UI_SyncState(*g_ui.state);
+            return 0;
+        }
+        break;
+
+    case WM_HSCROLL:
+        if (reinterpret_cast<HWND>(lParam) == g_ui.detectThresholdSlider ||
+            reinterpret_cast<HWND>(lParam) == g_ui.resetThresholdSlider ||
+            reinterpret_cast<HWND>(lParam) == g_ui.cooldownSlider)
+        {
+            UpdateDetectionSliderLabels();
+            return 0;
+        }
+        break;
+
+    case WM_CTLCOLORLISTBOX:
+    case WM_CTLCOLOREDIT:
+    case WM_CTLCOLORSTATIC:
+    case WM_CTLCOLORBTN:
+    {
+        HBRUSH brush = UI_HandleCtlColor(reinterpret_cast<HDC>(wParam), reinterpret_cast<HWND>(lParam));
+        if (brush)
+            return reinterpret_cast<LRESULT>(brush);
+        break;
+    }
+
+    case WM_CLOSE:
+        ShowWindow(hwnd, SW_HIDE);
+        return 0;
+    }
+
+    return DefWindowProcA(hwnd, msg, wParam, lParam);
+}

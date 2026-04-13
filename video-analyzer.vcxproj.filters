@@ -15,63 +15,63 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="BlackmagicSource.cpp">
+    <ClCompile Include="src\BlackmagicSource.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="Config.cpp">
+    <ClCompile Include="src\Config.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="Detection.cpp">
+    <ClCompile Include="src\Detection.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="Logger.cpp">
+    <ClCompile Include="src\Logger.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="Renderer.cpp">
+    <ClCompile Include="src\Renderer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="VideoSource.cpp">
+    <ClCompile Include="src\VideoSource.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="VizConnection.cpp">
+    <ClCompile Include="src\VizConnection.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="Win32Main.cpp">
+    <ClCompile Include="src\Win32Main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="Win32UI.cpp">
+    <ClCompile Include="src\Win32UI.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="AppState.h">
+    <ClInclude Include="include\AppState.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="BlackmagicSource.h">
+    <ClInclude Include="include\BlackmagicSource.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Config.h">
+    <ClInclude Include="include\Config.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Detection.h">
+    <ClInclude Include="include\Detection.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Logger.h">
+    <ClInclude Include="include\Logger.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Renderer.h">
+    <ClInclude Include="include\Renderer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="UI.h">
+    <ClInclude Include="include\UI.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Version.h">
+    <ClInclude Include="include\Version.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="VideoSource.h">
+    <ClInclude Include="include\VideoSource.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="VizConnection.h">
+    <ClInclude Include="include\VizConnection.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

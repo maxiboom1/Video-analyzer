@@ -79,6 +79,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
+      <AdditionalIncludeDirectories>$(SolutionDir)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -93,6 +94,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
+      <AdditionalIncludeDirectories>$(SolutionDir)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -107,7 +109,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>ENABLE_BLACKMAGIC_SDK;_DEBUG;_CONSOLE;NOMINMAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>C:\opencv\build\include;$(SolutionDir)third_party\blackmagic;$(BlackmagicSdkDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)include;C:\opencv\build\include;$(SolutionDir)third_party\blackmagic;$(BlackmagicSdkDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -124,7 +126,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>ENABLE_BLACKMAGIC_SDK;NDEBUG;_CONSOLE;NOMINMAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>C:\opencv\build\include;$(SolutionDir)third_party\blackmagic;$(BlackmagicSdkDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)include;C:\opencv\build\include;$(SolutionDir)third_party\blackmagic;$(BlackmagicSdkDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -136,27 +138,27 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="BlackmagicSource.cpp" />
-    <ClCompile Include="Config.cpp" />
-    <ClCompile Include="Detection.cpp" />
-    <ClCompile Include="Logger.cpp" />
-    <ClCompile Include="Renderer.cpp" />
-    <ClCompile Include="VideoSource.cpp" />
-    <ClCompile Include="VizConnection.cpp" />
-    <ClCompile Include="Win32Main.cpp" />
-    <ClCompile Include="Win32UI.cpp" />
+    <ClCompile Include="src\BlackmagicSource.cpp" />
+    <ClCompile Include="src\Config.cpp" />
+    <ClCompile Include="src\Detection.cpp" />
+    <ClCompile Include="src\Logger.cpp" />
+    <ClCompile Include="src\Renderer.cpp" />
+    <ClCompile Include="src\VideoSource.cpp" />
+    <ClCompile Include="src\VizConnection.cpp" />
+    <ClCompile Include="src\Win32Main.cpp" />
+    <ClCompile Include="src\Win32UI.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="AppState.h" />
-    <ClInclude Include="BlackmagicSource.h" />
-    <ClInclude Include="Config.h" />
-    <ClInclude Include="Detection.h" />
-    <ClInclude Include="Logger.h" />
-    <ClInclude Include="Renderer.h" />
-    <ClInclude Include="UI.h" />
-    <ClInclude Include="Version.h" />
-    <ClInclude Include="VideoSource.h" />
-    <ClInclude Include="VizConnection.h" />
+    <ClInclude Include="include\AppState.h" />
+    <ClInclude Include="include\BlackmagicSource.h" />
+    <ClInclude Include="include\Config.h" />
+    <ClInclude Include="include\Detection.h" />
+    <ClInclude Include="include\Logger.h" />
+    <ClInclude Include="include\Renderer.h" />
+    <ClInclude Include="include\UI.h" />
+    <ClInclude Include="include\Version.h" />
+    <ClInclude Include="include\VideoSource.h" />
+    <ClInclude Include="include\VizConnection.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="$(BlackmagicSdkDir)DeckLinkAPI_i.c" />

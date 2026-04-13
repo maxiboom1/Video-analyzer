@@ -200,8 +200,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
 
     AppContext app;
     Config_Load(app.state);
-    Detection_LoadTemplates(app.state);
-    AddLog(std::string("=== Video Analyzer v") + kAppVersion + " ===");
+    Detection_LoadTemplateCatalog(app.state);
+    AddLog(kAppLogBannerA);
     AddLog("Blackmagic support requires Desktop Video / driver version 16 or newer.");
 
     VideoSource_Init(app.sourceCtx);

@@ -1,66 +1,158 @@
 #include "Detection.h"
+
 #include "Logger.h"
-#include <windows.h>
-#include <sstream>
+#include "Templates.h"
+
+#include <algorithm>
 #include <iomanip>
-#include "Config.h"
+#include <sstream>
 
-static std::string GetExeDir()
+namespace
 {
-    char exePath[MAX_PATH] = {};
-    GetModuleFileNameA(nullptr, exePath, MAX_PATH);
-    std::string path(exePath);
-    size_t pos = path.find_last_of("\\/");
-    return (pos != std::string::npos) ? path.substr(0, pos + 1) : "";
+    cv::Rect RoiToWorkRect(const NormalizedRoi& roi)
+    {
+        if (!roi.enabled)
+            return cv::Rect(0, 0, WORK_W, WORK_H);
+
+        const int x = std::clamp(static_cast<int>(roi.x * WORK_W + 0.5f), 0, std::max(0, WORK_W - 1));
+        const int y = std::clamp(static_cast<int>(roi.y * WORK_H + 0.5f), 0, std::max(0, WORK_H - 1));
+        const int w = std::clamp(static_cast<int>(roi.w * WORK_W + 0.5f), 1, WORK_W - x);
+        const int h = std::clamp(static_cast<int>(roi.h * WORK_H + 0.5f), 1, WORK_H - y);
+        return cv::Rect(x, y, w, h);
+    }
+
+    void ClearActiveTemplate(AppState& state)
+    {
+        state.activeTemplateLoaded = false;
+        state.activeTemplateFolder.clear();
+        state.activeTemplateName.clear();
+        state.activeInRoi = {};
+        state.activeOutRoi = {};
+        state.tmplIn.release();
+        state.tmplOut.release();
+        state.tmplInRaw.release();
+        state.tmplOutRaw.release();
+        state.tmplInRect = cv::Rect();
+        state.tmplOutRect = cv::Rect();
+        state.tmplWorkWidth = 0;
+        state.tmplWorkHeight = 0;
+        state.lastScore = 0.0;
+    }
+
+    const cv::Rect& ActiveTemplateRect(const AppState& state)
+    {
+        return (state.cueState == CueState::WIPER_IN) ? state.tmplInRect : state.tmplOutRect;
+    }
 }
 
-bool Detection_LoadTemplates(AppState& state)
+bool Detection_LoadTemplateCatalog(AppState& state)
 {
-    std::string dir = GetExeDir();
-    bool ok = false;
-
-    // --- Load wiper_in ---
-    cv::Mat rawIn = cv::imread(dir + "wiper_in.png", cv::IMREAD_GRAYSCALE);
-    if (rawIn.empty())
+    Templates_ScanCatalog(state);
+    if (state.templates.empty())
     {
-        AddLog(CurrentTimestamp() + " | WARNING: wiper_in.png not found in " + dir);
-    }
-    else
-    {
-        state.tmplInRaw = rawIn;  // keep original for re-resize on resolution change
-        cv::resize(rawIn, state.tmplIn, cv::Size(WORK_W, WORK_H));
-        AddLog(CurrentTimestamp() + " | Template loaded: wiper_in.png (" +
-               std::to_string(rawIn.cols) + "x" + std::to_string(rawIn.rows) + ")");
-        ok = true;
+        ClearActiveTemplate(state);
+        AddLog(CurrentTimestamp() + " | WARNING: no templates found in " + Templates_GetRootDirectory());
+        return false;
     }
 
-    // --- Load wiper_out ---
-    cv::Mat rawOut = cv::imread(dir + "wiper_out.png", cv::IMREAD_GRAYSCALE);
-    if (rawOut.empty())
+    if (state.activeTemplateName.empty() || !Templates_FindByName(state, state.activeTemplateName))
     {
-        AddLog(CurrentTimestamp() + " | WARNING: wiper_out.png not found in " + dir);
-    }
-    else
-    {
-        state.tmplOutRaw = rawOut;  // keep original for re-resize on resolution change
-        cv::resize(rawOut, state.tmplOut, cv::Size(WORK_W, WORK_H));
-        AddLog(CurrentTimestamp() + " | Template loaded: wiper_out.png (" +
-               std::to_string(rawOut.cols) + "x" + std::to_string(rawOut.rows) + ")");
-        ok = true;
+        state.activeTemplateName = state.templates.front().name;
+        AddLog(CurrentTimestamp() + " | Active template fallback: " + state.activeTemplateName);
     }
 
-    return ok;
+    return Detection_LoadActiveTemplate(state);
 }
 
-void Detection_ResizeTemplates(AppState& state)
+bool Detection_LoadActiveTemplate(AppState& state)
 {
-    if (!state.tmplInRaw.empty())
-        cv::resize(state.tmplInRaw, state.tmplIn, cv::Size(WORK_W, WORK_H));
+    if (state.templates.empty())
+    {
+        ClearActiveTemplate(state);
+        return false;
+    }
 
-    if (!state.tmplOutRaw.empty())
-        cv::resize(state.tmplOutRaw, state.tmplOut, cv::Size(WORK_W, WORK_H));
+    const TemplateManifest* manifest = Templates_FindByName(state, state.activeTemplateName);
+    if (!manifest)
+    {
+        state.activeTemplateName = state.templates.front().name;
+        manifest = Templates_FindByName(state, state.activeTemplateName);
+    }
 
-    AddLog(CurrentTimestamp() + " | Templates resized to " +
+    if (!manifest)
+    {
+        ClearActiveTemplate(state);
+        return false;
+    }
+
+    const std::string inPath = manifest->folderPath + "\\" + manifest->inImagePath;
+    const std::string outPath = manifest->folderPath + "\\" + manifest->outImagePath;
+
+    const cv::Mat inRaw = cv::imread(inPath, cv::IMREAD_GRAYSCALE);
+    const cv::Mat outRaw = cv::imread(outPath, cv::IMREAD_GRAYSCALE);
+    if (inRaw.empty() || outRaw.empty())
+    {
+        ClearActiveTemplate(state);
+        AddLog(CurrentTimestamp() + " | ERROR: failed to load active template assets for " + manifest->name);
+        return false;
+    }
+
+    state.activeTemplateFolder = manifest->folderPath;
+    state.activeInRoi = manifest->inRoi;
+    state.activeOutRoi = manifest->outRoi;
+    state.tmplInRaw = inRaw;
+    state.tmplOutRaw = outRaw;
+    state.activeTemplateLoaded = true;
+    Detection_RebuildRuntimeTemplateAssets(state);
+
+    AddLog(CurrentTimestamp() + " | Active template loaded: " + state.activeTemplateName);
+    return !state.tmplIn.empty() && !state.tmplOut.empty();
+}
+
+bool Detection_SetActiveTemplate(AppState& state, const std::string& name)
+{
+    if (name.empty())
+    {
+        ClearActiveTemplate(state);
+        return false;
+    }
+
+    if (!Templates_FindByName(state, name))
+    {
+        AddLog(CurrentTimestamp() + " | WARNING: requested template not found: " + name);
+        return false;
+    }
+
+    state.activeTemplateName = name;
+    return Detection_LoadActiveTemplate(state);
+}
+
+void Detection_RebuildRuntimeTemplateAssets(AppState& state)
+{
+    if (state.tmplInRaw.empty() || state.tmplOutRaw.empty())
+    {
+        state.tmplIn.release();
+        state.tmplOut.release();
+        state.tmplInRect = cv::Rect();
+        state.tmplOutRect = cv::Rect();
+        state.tmplWorkWidth = 0;
+        state.tmplWorkHeight = 0;
+        return;
+    }
+
+    cv::Mat inResized;
+    cv::Mat outResized;
+    cv::resize(state.tmplInRaw, inResized, cv::Size(WORK_W, WORK_H));
+    cv::resize(state.tmplOutRaw, outResized, cv::Size(WORK_W, WORK_H));
+
+    state.tmplInRect = RoiToWorkRect(state.activeInRoi);
+    state.tmplOutRect = RoiToWorkRect(state.activeOutRoi);
+    state.tmplIn = inResized(state.tmplInRect).clone();
+    state.tmplOut = outResized(state.tmplOutRect).clone();
+    state.tmplWorkWidth = WORK_W;
+    state.tmplWorkHeight = WORK_H;
+
+    AddLog(CurrentTimestamp() + " | Active template assets rebuilt for " +
            std::to_string(WORK_W) + "x" + std::to_string(WORK_H));
 }
 
@@ -71,63 +163,64 @@ const cv::Mat& Detection_ActiveTemplate(const AppState& state)
 
 bool Detection_ProcessFrame(const cv::Mat& grayResized, AppState& state)
 {
-    const cv::Mat& tmpl = Detection_ActiveTemplate(state);
-
-    if (tmpl.empty() || grayResized.empty())
+    if (!state.activeTemplateLoaded || grayResized.empty())
         return false;
 
-    // If template size doesn't match working resolution, re-resize templates.
-    // This handles DeckLink format detection changing WORK_W/H after initial load.
-    if (tmpl.cols != WORK_W || tmpl.rows != WORK_H)
+    if (state.tmplWorkWidth != WORK_W || state.tmplWorkHeight != WORK_H)
     {
-        Detection_ResizeTemplates(state);
-        return false; // skip this frame, templates ready next frame
+        Detection_RebuildRuntimeTemplateAssets(state);
+        return false;
     }
 
-    // Template must exactly match working resolution for full-frame matching
-    if (grayResized.size() != tmpl.size())
+    const cv::Mat& tmpl = Detection_ActiveTemplate(state);
+    const cv::Rect& roi = ActiveTemplateRect(state);
+    if (tmpl.empty() || roi.width <= 0 || roi.height <= 0)
         return false;
 
-    // --- Template matching ---
+    const cv::Rect frameBounds(0, 0, grayResized.cols, grayResized.rows);
+    const cv::Rect clipped = roi & frameBounds;
+    if (clipped.width != roi.width || clipped.height != roi.height)
+        return false;
+
+    cv::Mat frameRoi = grayResized(roi);
+    if (frameRoi.size() != tmpl.size())
+        return false;
+
     cv::Mat result;
-    cv::matchTemplate(grayResized, tmpl, result, cv::TM_CCOEFF_NORMED);
+    cv::matchTemplate(frameRoi, tmpl, result, cv::TM_CCOEFF_NORMED);
 
     double maxVal = 0.0;
     cv::minMaxLoc(result, nullptr, &maxVal);
     state.lastScore = maxVal;
 
     auto now = std::chrono::steady_clock::now();
-
-    // --- Cooldown check ---
     if (state.detectionState == DetectionState::COOLDOWN)
     {
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
             now - state.lastDetectionTime).count();
-
         if (elapsed >= state.cooldownMs)
             state.detectionState = DetectionState::IDLE;
         else
-            return false;  // still in cooldown
+            return false;
     }
 
-    // --- Reset logic ---
     if (state.detectionState == DetectionState::DETECTED && maxVal < state.resetThreshold)
         state.detectionState = DetectionState::IDLE;
 
-    // --- Detection trigger ---
     if (!state.detectionEnabled)
         return false;
 
     if (state.detectionState == DetectionState::IDLE && maxVal >= state.detectThreshold)
     {
-        state.detectionState    = DetectionState::DETECTED;
+        state.detectionState = DetectionState::DETECTED;
         state.lastDetectionTime = now;
 
         std::ostringstream oss;
         oss << CurrentTimestamp()
             << " | DETECTED ["
             << (state.cueState == CueState::WIPER_IN ? "WIPER IN" : "WIPER OUT")
-            << "] Score: " << std::fixed << std::setprecision(3) << maxVal;
+            << "] Template: " << state.activeTemplateName
+            << " Score: " << std::fixed << std::setprecision(3) << maxVal;
         AddLog(oss.str());
 
         Detection_FlipCue(state);

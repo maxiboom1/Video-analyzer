@@ -79,6 +79,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp17</LanguageStandard>
       <AdditionalIncludeDirectories>$(SolutionDir)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
@@ -94,6 +95,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp17</LanguageStandard>
       <AdditionalIncludeDirectories>$(SolutionDir)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
@@ -109,6 +111,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>ENABLE_BLACKMAGIC_SDK;_DEBUG;_CONSOLE;NOMINMAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp17</LanguageStandard>
       <AdditionalIncludeDirectories>$(SolutionDir)include;C:\opencv\build\include;$(SolutionDir)third_party\blackmagic;$(BlackmagicSdkDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
@@ -126,6 +129,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>ENABLE_BLACKMAGIC_SDK;NDEBUG;_CONSOLE;NOMINMAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp17</LanguageStandard>
       <AdditionalIncludeDirectories>$(SolutionDir)include;C:\opencv\build\include;$(SolutionDir)third_party\blackmagic;$(BlackmagicSdkDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
@@ -143,6 +147,8 @@
     <ClCompile Include="src\Detection.cpp" />
     <ClCompile Include="src\Logger.cpp" />
     <ClCompile Include="src\Renderer.cpp" />
+    <ClCompile Include="src\TemplateDialogs.cpp" />
+    <ClCompile Include="src\Templates.cpp" />
     <ClCompile Include="src\VideoSource.cpp" />
     <ClCompile Include="src\VizConnection.cpp" />
     <ClCompile Include="src\Win32Main.cpp" />
@@ -155,6 +161,8 @@
     <ClInclude Include="include\Detection.h" />
     <ClInclude Include="include\Logger.h" />
     <ClInclude Include="include\Renderer.h" />
+    <ClInclude Include="include\TemplateDialogs.h" />
+    <ClInclude Include="include\Templates.h" />
     <ClInclude Include="include\UI.h" />
     <ClInclude Include="include\Version.h" />
     <ClInclude Include="include\VideoSource.h" />

@@ -14,6 +14,7 @@
 #include "Detection.h"
 #include "Logger.h"
 #include "Renderer.h"
+#include "TemplateDialogs.h"
 #include "Version.h"
 #include "VideoSource.h"
 
@@ -36,6 +37,7 @@ namespace
         IDC_SETTINGS_BUTTON = 1001,
         IDC_DEVICE_COMBO,
         IDC_REFRESH_BUTTON,
+        IDC_TEMPLATE_COMBO,
         IDC_RENDERER_STATUS,
         IDC_NEXT_CUE_BUTTON,
         IDC_PREVIEW_CHECK,
@@ -60,7 +62,12 @@ namespace
         IDC_CMD_OFF_EDIT,
         IDC_SETTINGS_SAVE_BUTTON,
         IDC_SETTINGS_STATUS,
-        IDC_TEMPLATES_PLACEHOLDER
+        IDC_TEMPLATES_LIST,
+        IDC_TEMPLATE_NEW_BUTTON,
+        IDC_TEMPLATE_EDIT_BUTTON,
+        IDC_TEMPLATE_DELETE_BUTTON,
+        IDC_TEMPLATE_ACTIVATE_BUTTON,
+        IDC_TEMPLATE_DETAILS
     };
 
     struct UIContext
@@ -85,6 +92,8 @@ namespace
         HWND deviceLabel = nullptr;
         HWND deviceCombo = nullptr;
         HWND refreshButton = nullptr;
+        HWND templateLabel = nullptr;
+        HWND templateCombo = nullptr;
         HWND rendererLabel = nullptr;
         HWND rendererStatus = nullptr;
         HWND nextCueButton = nullptr;
@@ -119,13 +128,20 @@ namespace
         HWND cmdOffEdit = nullptr;
         HWND settingsStatus = nullptr;
         HWND saveButton = nullptr;
-        HWND templatesPlaceholder = nullptr;
+        HWND templatesList = nullptr;
+        HWND templateNewButton = nullptr;
+        HWND templateEditButton = nullptr;
+        HWND templateDeleteButton = nullptr;
+        HWND templateActivateButton = nullptr;
+        HWND templateDetails = nullptr;
 
         bool lastVizOk = true;
         int currentSettingsTab = 0;
         size_t lastLogCount = 0;
         std::string lastLogTail;
         std::string deviceSignature;
+        std::string templateSignature;
+        std::string templateSelectionName;
 
         RECT headerBand{};
         RECT controlCard{};
@@ -135,6 +151,7 @@ namespace
     };
 
     UIContext g_ui;
+    void SyncSettingsFromState(const AppState& state);
     void SetControlFont(HWND hwnd)
     {
         if (hwnd && g_ui.font)
@@ -304,6 +321,180 @@ namespace
         return oss.str();
     }
 
+    std::string FormatRoiSummary(const NormalizedRoi& roi)
+    {
+        if (!roi.enabled)
+            return "Full frame";
+
+        char buffer[96] = {};
+        sprintf_s(buffer, "x=%.3f y=%.3f w=%.3f h=%.3f", roi.x, roi.y, roi.w, roi.h);
+        return buffer;
+    }
+
+    std::string BuildTemplateSignature(const AppState& state)
+    {
+        std::ostringstream oss;
+        oss << state.activeTemplateName << "|" << state.templates.size() << "|";
+        for (const auto& manifest : state.templates)
+        {
+            oss << manifest.name << "|"
+                << manifest.updatedAt << "|"
+                << manifest.inImagePath << "|"
+                << manifest.outImagePath << "|";
+        }
+        return oss.str();
+    }
+
+    std::string GetSelectedTemplateNameFromList()
+    {
+        const int selection = static_cast<int>(SendMessageA(g_ui.templatesList, LB_GETCURSEL, 0, 0));
+        if (selection == LB_ERR || !g_ui.state)
+            return {};
+        if (selection < 0 || selection >= static_cast<int>(g_ui.state->templates.size()))
+            return {};
+        return g_ui.state->templates[selection].name;
+    }
+
+    void SelectTemplateListByName(const std::string& name)
+    {
+        if (!g_ui.templatesList || !g_ui.state)
+            return;
+
+        int index = LB_ERR;
+        for (size_t i = 0; i < g_ui.state->templates.size(); ++i)
+        {
+            if (g_ui.state->templates[i].name == name)
+            {
+                index = static_cast<int>(i);
+                break;
+            }
+        }
+
+        if (index == LB_ERR && !g_ui.state->templates.empty())
+            index = 0;
+
+        SendMessageA(g_ui.templatesList, LB_SETCURSEL, index, 0);
+        g_ui.templateSelectionName = (index != LB_ERR) ? g_ui.state->templates[static_cast<size_t>(index)].name : std::string();
+    }
+
+    void UpdateTemplateDetails(const AppState& state)
+    {
+        std::string selectedName = GetSelectedTemplateNameFromList();
+        if (selectedName.empty())
+            selectedName = !g_ui.templateSelectionName.empty() ? g_ui.templateSelectionName : state.activeTemplateName;
+
+        const TemplateManifest* manifest = Templates_FindByName(state, selectedName);
+        std::ostringstream details;
+        if (!manifest)
+        {
+            details << "No templates available.\r\nCreate a template to enable runtime matching.";
+        }
+        else
+        {
+            details << "Selected: " << manifest->name << "\r\n";
+            details << "Active: " << (state.activeTemplateName.empty() ? "None" : state.activeTemplateName) << "\r\n";
+            details << "IN ROI: " << FormatRoiSummary(manifest->inRoi) << "\r\n";
+            details << "OUT ROI: " << FormatRoiSummary(manifest->outRoi);
+        }
+
+        SetWindowTextA(g_ui.templateDetails, details.str().c_str());
+
+        const bool hasSelection = manifest != nullptr;
+        EnableWindow(g_ui.templateEditButton, hasSelection);
+        EnableWindow(g_ui.templateDeleteButton, hasSelection);
+        EnableWindow(g_ui.templateActivateButton, hasSelection && manifest->name != state.activeTemplateName);
+    }
+
+    void UpdateTemplateControls(const AppState& state)
+    {
+        const bool comboDropped = g_ui.templateCombo &&
+            SendMessageA(g_ui.templateCombo, CB_GETDROPPEDSTATE, 0, 0) != 0;
+        if (comboDropped)
+        {
+            UpdateTemplateDetails(state);
+            return;
+        }
+
+        const std::string signature = BuildTemplateSignature(state);
+        if (signature != g_ui.templateSignature)
+        {
+            SendMessageA(g_ui.templateCombo, CB_RESETCONTENT, 0, 0);
+            SendMessageA(g_ui.templatesList, LB_RESETCONTENT, 0, 0);
+
+            if (state.templates.empty())
+            {
+                SendMessageA(g_ui.templateCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>("<No templates>"));
+                SendMessageA(g_ui.templateCombo, CB_SETCURSEL, 0, 0);
+                EnableWindow(g_ui.templateCombo, FALSE);
+                g_ui.templateSelectionName.clear();
+            }
+            else
+            {
+                EnableWindow(g_ui.templateCombo, TRUE);
+                std::string selectedName = g_ui.templateSelectionName;
+                if (selectedName.empty())
+                    selectedName = state.activeTemplateName;
+
+                int activeIndex = 0;
+                int selectedIndex = LB_ERR;
+                for (size_t i = 0; i < state.templates.size(); ++i)
+                {
+                    const char* name = state.templates[i].name.c_str();
+                    SendMessageA(g_ui.templateCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(name));
+                    SendMessageA(g_ui.templatesList, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(name));
+                    if (state.templates[i].name == state.activeTemplateName)
+                        activeIndex = static_cast<int>(i);
+                    if (state.templates[i].name == selectedName)
+                        selectedIndex = static_cast<int>(i);
+                }
+
+                SendMessageA(g_ui.templateCombo, CB_SETCURSEL, activeIndex, 0);
+                if (selectedIndex == LB_ERR)
+                    selectedIndex = activeIndex;
+                SendMessageA(g_ui.templatesList, LB_SETCURSEL, selectedIndex, 0);
+                g_ui.templateSelectionName = state.templates[static_cast<size_t>(selectedIndex)].name;
+            }
+
+            g_ui.templateSignature = signature;
+        }
+        else if (!state.templates.empty())
+        {
+            int activeIndex = 0;
+            for (size_t i = 0; i < state.templates.size(); ++i)
+            {
+                if (state.templates[i].name == state.activeTemplateName)
+                {
+                    activeIndex = static_cast<int>(i);
+                    break;
+                }
+            }
+            SendMessageA(g_ui.templateCombo, CB_SETCURSEL, activeIndex, 0);
+        }
+
+        UpdateTemplateDetails(state);
+    }
+
+    TemplateManifest DraftToManifest(const TemplateDraft& draft)
+    {
+        TemplateManifest manifest;
+        manifest.name = draft.templateName;
+        manifest.inRoi = draft.inRoi;
+        manifest.outRoi = draft.outRoi;
+        return manifest;
+    }
+
+    void ShowTemplateError(HWND owner, const std::string& error)
+    {
+        MessageBoxA(owner, error.c_str(), "Template", MB_OK | MB_ICONERROR);
+    }
+
+    void SaveConfigAndRefresh(AppState& state)
+    {
+        Config_Save(state);
+        UI_SyncState(state);
+        SyncSettingsFromState(state);
+    }
+
     void SyncSettingsFromState(const AppState& state)
     {
         SetCheckState(g_ui.detectionEnabledCheck, state.detectionEnabled);
@@ -330,9 +521,71 @@ namespace
         strncpy_s(state.cmdOff, GetWindowTextString(g_ui.cmdOffEdit).c_str(), _TRUNCATE);
     }
 
+    bool RunTemplateEditor(AppState& state, const TemplateManifest* existing, const std::string& originalName)
+    {
+        TemplateDraft draft;
+        std::string error;
+        if (!TemplateDialogs_ShowEditor(g_ui.settingsWindow, g_ui.instance, existing, draft, error))
+        {
+            if (!error.empty())
+                ShowTemplateError(g_ui.settingsWindow, error);
+            return false;
+        }
+
+        TemplateManifest manifest = DraftToManifest(draft);
+        if (!Templates_SaveTemplate(state, manifest, draft.inSourcePath, draft.outSourcePath, originalName, error))
+        {
+            ShowTemplateError(g_ui.settingsWindow, error);
+            return false;
+        }
+
+        const bool shouldActivate = originalName.empty() || state.activeTemplateName == originalName;
+        if (shouldActivate)
+            Detection_SetActiveTemplate(state, manifest.name);
+        else
+            Templates_ScanCatalog(state);
+
+        g_ui.templateSignature.clear();
+        g_ui.templateSelectionName = manifest.name;
+        SaveConfigAndRefresh(state);
+        return true;
+    }
+
+    void DeleteSelectedTemplate(AppState& state)
+    {
+        const std::string selectedName = GetSelectedTemplateNameFromList();
+        if (selectedName.empty())
+            return;
+
+        std::string prompt = "Delete template '" + selectedName + "'?";
+        if (MessageBoxA(g_ui.settingsWindow, prompt.c_str(), "Delete Template", MB_OKCANCEL | MB_ICONWARNING) != IDOK)
+            return;
+
+        const bool deletingActive = selectedName == state.activeTemplateName;
+        std::string error;
+        if (!Templates_DeleteTemplate(state, selectedName, error))
+        {
+            ShowTemplateError(g_ui.settingsWindow, error);
+            return;
+        }
+
+        if (deletingActive)
+        {
+            if (!state.templates.empty())
+                Detection_SetActiveTemplate(state, state.templates.front().name);
+            else
+                Detection_SetActiveTemplate(state, "");
+        }
+
+        g_ui.templateSignature.clear();
+        g_ui.templateSelectionName = state.activeTemplateName;
+        SaveConfigAndRefresh(state);
+    }
+
     void ShowSettingsWindow(const AppState& state)
     {
         SyncSettingsFromState(state);
+        UpdateTemplateControls(state);
 
         RECT mainRect{};
         GetWindowRect(g_ui.mainWindow, &mainRect);
@@ -433,16 +686,19 @@ namespace
         MoveWindow(g_ui.settingsButton, width - kMargin - 126, contentTop + 2, 118, 34, TRUE);
 
         const int controlTop = contentTop + 54;
-        g_ui.controlCard = { contentLeft, controlTop, width - kMargin, controlTop + 124 };
+        g_ui.controlCard = { contentLeft, controlTop, width - kMargin, controlTop + 152 };
         MoveWindow(g_ui.deviceLabel, contentLeft + 20, controlTop + 18, 100, 22, TRUE);
         MoveWindow(g_ui.deviceCombo, contentLeft + 126, controlTop + 14, std::max(180, contentWidth - 264), 240, TRUE);
         MoveWindow(g_ui.refreshButton, width - kMargin - 112, controlTop + 12, 92, 34, TRUE);
 
-        MoveWindow(g_ui.rendererLabel, contentLeft + 20, controlTop + 52, 100, 22, TRUE);
-        MoveWindow(g_ui.rendererStatus, contentLeft + 126, controlTop + 54, contentWidth - 146, 20, TRUE);
-        MoveWindow(g_ui.nextCueButton, contentLeft + 20, controlTop + 78, contentWidth - 40, 34, TRUE);
+        MoveWindow(g_ui.templateLabel, contentLeft + 20, controlTop + 52, 100, 22, TRUE);
+        MoveWindow(g_ui.templateCombo, contentLeft + 126, controlTop + 48, contentWidth - 146, 240, TRUE);
 
-        const int previewTop = controlTop + 136;
+        MoveWindow(g_ui.rendererLabel, contentLeft + 20, controlTop + 86, 100, 22, TRUE);
+        MoveWindow(g_ui.rendererStatus, contentLeft + 126, controlTop + 88, contentWidth - 146, 20, TRUE);
+        MoveWindow(g_ui.nextCueButton, contentLeft + 20, controlTop + 112, contentWidth - 40, 30, TRUE);
+
+        const int previewTop = controlTop + 164;
         const int availableHeight = std::max(120, height - previewTop - kMargin);
         const int previewSectionHeight = std::max(250, static_cast<int>(availableHeight * 0.50f));
         const int logTop = previewTop + previewSectionHeight + 12;
@@ -490,12 +746,21 @@ namespace
             g_ui.cmdOffEdit,
             g_ui.settingsStatus
         };
+        const HWND templatesControls[] = {
+            g_ui.templatesList,
+            g_ui.templateNewButton,
+            g_ui.templateEditButton,
+            g_ui.templateDeleteButton,
+            g_ui.templateActivateButton,
+            g_ui.templateDetails
+        };
 
         for (HWND hwnd : detectionControls)
             ShowWindow(hwnd, detectionTab ? SW_SHOW : SW_HIDE);
         for (HWND hwnd : engineControls)
             ShowWindow(hwnd, engineTab ? SW_SHOW : SW_HIDE);
-        ShowWindow(g_ui.templatesPlaceholder, templatesTab ? SW_SHOW : SW_HIDE);
+        for (HWND hwnd : templatesControls)
+            ShowWindow(hwnd, templatesTab ? SW_SHOW : SW_HIDE);
         if (g_ui.settingsTabDetection)
             InvalidateRect(g_ui.settingsTabDetection, nullptr, TRUE);
         if (g_ui.settingsTabEngine)
@@ -508,7 +773,7 @@ namespace
     {
         const int tabsTop = kMargin;
         const int tabsLeft = kMargin;
-        const int tabWidth = 92;
+        const int tabWidth = 88;
         const int tabHeight = 24;
         MoveWindow(g_ui.settingsTabDetection, tabsLeft, tabsTop, tabWidth, tabHeight, TRUE);
         MoveWindow(g_ui.settingsTabEngine, tabsLeft + tabWidth + 6, tabsTop, tabWidth, tabHeight, TRUE);
@@ -543,7 +808,18 @@ namespace
         MoveWindow(g_ui.cmdOffEdit, fieldLeft, panelRect.top + 120, fieldW, 24, TRUE);
         MoveWindow(g_ui.settingsStatus, left, panelRect.top + 164, std::max(240, fieldW + labelW), 20, TRUE);
 
-        MoveWindow(g_ui.templatesPlaceholder, left, panelRect.top + 20, std::max(240, fieldW), 60, TRUE);
+        const int panelWidth = static_cast<int>(panelRect.right - panelRect.left);
+        const int panelHeight = static_cast<int>(panelRect.bottom - panelRect.top);
+        const int listWidth = std::max(220, panelWidth / 2 - 24);
+        const int listHeight = std::max(180, panelHeight - 72);
+        const int rightLeft = left + listWidth + 18;
+        const int rightWidth = std::max(180, static_cast<int>(panelRect.right) - rightLeft - 16);
+        MoveWindow(g_ui.templatesList, left, panelRect.top + 16, listWidth, listHeight, TRUE);
+        MoveWindow(g_ui.templateNewButton, rightLeft, panelRect.top + 16, 108, 30, TRUE);
+        MoveWindow(g_ui.templateEditButton, rightLeft + 116, panelRect.top + 16, 108, 30, TRUE);
+        MoveWindow(g_ui.templateDeleteButton, rightLeft, panelRect.top + 54, 108, 30, TRUE);
+        MoveWindow(g_ui.templateActivateButton, rightLeft + 116, panelRect.top + 54, 128, 30, TRUE);
+        MoveWindow(g_ui.templateDetails, rightLeft, panelRect.top + 100, rightWidth, std::max(96, listHeight - 84), TRUE);
         MoveWindow(g_ui.saveButton, width - kMargin - 120, height - kMargin - 30, 120, 30, TRUE);
 
         InvalidateRect(g_ui.settingsWindow, nullptr, TRUE);
@@ -603,12 +879,23 @@ namespace
         g_ui.cmdOffEdit = CreateControlA(WS_EX_CLIENTEDGE, "EDIT", "", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, IDC_CMD_OFF_EDIT, g_ui.settingsWindow);
         g_ui.settingsStatus = CreateControlA(0, "STATIC", "", WS_CHILD | WS_VISIBLE, IDC_SETTINGS_STATUS, g_ui.settingsWindow);
         g_ui.saveButton = CreateButtonA("Save Config", IDC_SETTINGS_SAVE_BUTTON, g_ui.settingsWindow, true);
-        g_ui.templatesPlaceholder = CreateControlA(
+        g_ui.templatesList = CreateControlA(
+            WS_EX_CLIENTEDGE,
+            "LISTBOX",
+            "",
+            WS_CHILD | WS_VISIBLE | WS_VSCROLL | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT,
+            IDC_TEMPLATES_LIST,
+            g_ui.settingsWindow);
+        g_ui.templateNewButton = CreateButtonA("New", IDC_TEMPLATE_NEW_BUTTON, g_ui.settingsWindow, true);
+        g_ui.templateEditButton = CreateButtonA("Edit", IDC_TEMPLATE_EDIT_BUTTON, g_ui.settingsWindow, true);
+        g_ui.templateDeleteButton = CreateButtonA("Delete", IDC_TEMPLATE_DELETE_BUTTON, g_ui.settingsWindow, true);
+        g_ui.templateActivateButton = CreateButtonA("Set Active", IDC_TEMPLATE_ACTIVATE_BUTTON, g_ui.settingsWindow, true);
+        g_ui.templateDetails = CreateControlA(
             0,
             "STATIC",
-            "Template management will be added in a later version.\r\nThis tab remains reserved in 0.9.21.",
+            "",
             WS_CHILD | WS_VISIBLE,
-            IDC_TEMPLATES_PLACEHOLDER,
+            IDC_TEMPLATE_DETAILS,
             g_ui.settingsWindow);
 
         SetControlFont(g_ui.detectThresholdLabel, g_ui.sectionFont);
@@ -622,6 +909,7 @@ namespace
         SetControlFont(g_ui.cmdOnLabel, g_ui.sectionFont);
         SetControlFont(g_ui.cmdOffLabel, g_ui.sectionFont);
         SetControlFont(g_ui.settingsStatus, g_ui.sectionFont);
+        SetControlFont(g_ui.templateDetails, g_ui.sectionFont);
 
         SetWindowTheme(g_ui.detectThresholdSlider, L"Explorer", nullptr);
         SetWindowTheme(g_ui.resetThresholdSlider, L"Explorer", nullptr);
@@ -630,6 +918,7 @@ namespace
         SetWindowTheme(g_ui.vizPortEdit, L"Explorer", nullptr);
         SetWindowTheme(g_ui.cmdOnEdit, L"Explorer", nullptr);
         SetWindowTheme(g_ui.cmdOffEdit, L"Explorer", nullptr);
+        SetWindowTheme(g_ui.templatesList, L"Explorer", nullptr);
 
         SendMessageA(g_ui.detectThresholdSlider, TBM_SETRANGEMIN, FALSE, 10);
         SendMessageA(g_ui.detectThresholdSlider, TBM_SETRANGEMAX, TRUE, 99);
@@ -719,6 +1008,8 @@ bool UI_Create(HWND hwnd, HINSTANCE instance, AppState& state)
     g_ui.deviceLabel = CreateControlA(0, "STATIC", "Video Device", WS_CHILD | WS_VISIBLE, 0, hwnd);
     g_ui.deviceCombo = CreateControlA(0, "COMBOBOX", "", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, IDC_DEVICE_COMBO, hwnd);
     g_ui.refreshButton = CreateButtonA("Refresh", IDC_REFRESH_BUTTON, hwnd, true);
+    g_ui.templateLabel = CreateControlA(0, "STATIC", "Template", WS_CHILD | WS_VISIBLE, 0, hwnd);
+    g_ui.templateCombo = CreateControlA(0, "COMBOBOX", "", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, IDC_TEMPLATE_COMBO, hwnd);
     g_ui.rendererLabel = CreateControlA(0, "STATIC", "Renderer", WS_CHILD | WS_VISIBLE, 0, hwnd);
     g_ui.rendererStatus = CreateControlA(0, "STATIC", "", WS_CHILD | WS_VISIBLE, IDC_RENDERER_STATUS, hwnd);
     g_ui.nextCueButton = CreateButtonA("", IDC_NEXT_CUE_BUTTON, hwnd, true);
@@ -735,6 +1026,7 @@ bool UI_Create(HWND hwnd, HINSTANCE instance, AppState& state)
         hwnd);
 
     SetControlFont(g_ui.deviceLabel, g_ui.sectionFont);
+    SetControlFont(g_ui.templateLabel, g_ui.sectionFont);
     SetControlFont(g_ui.rendererLabel, g_ui.sectionFont);
 
     g_ui.settingsWindow = CreateWindowExA(
@@ -756,6 +1048,7 @@ bool UI_Create(HWND hwnd, HINSTANCE instance, AppState& state)
 
     SendMessageA(g_ui.logEdit, EM_SETLIMITTEXT, 0, 0);
     SetWindowTheme(g_ui.deviceCombo, L"Explorer", nullptr);
+    SetWindowTheme(g_ui.templateCombo, L"Explorer", nullptr);
     SetWindowTheme(g_ui.logEdit, L"Explorer", nullptr);
     CreateSettingsWindowControls();
     SyncSettingsFromState(state);
@@ -765,6 +1058,7 @@ bool UI_Create(HWND hwnd, HINSTANCE instance, AppState& state)
     UpdateRendererStatus(state);
     UpdateNextCueButton(state);
     UpdateDeviceList(state);
+    UpdateTemplateControls(state);
     UpdateLogView(state);
     ShowSettingsTab(0);
 
@@ -862,6 +1156,20 @@ bool UI_HandleMainCommand(WPARAM wParam, LPARAM, AppState& state)
         }
         break;
 
+    case IDC_TEMPLATE_COMBO:
+        if (HIWORD(wParam) == CBN_SELCHANGE)
+        {
+            const int selectedIndex = static_cast<int>(SendMessageA(g_ui.templateCombo, CB_GETCURSEL, 0, 0));
+            if (selectedIndex >= 0 && selectedIndex < static_cast<int>(state.templates.size()))
+            {
+                Detection_SetActiveTemplate(state, state.templates[static_cast<size_t>(selectedIndex)].name);
+                g_ui.templateSignature.clear();
+                SaveConfigAndRefresh(state);
+            }
+            return true;
+        }
+        break;
+
     case IDC_REFRESH_BUTTON:
         state.deviceListDirty = true;
         return true;
@@ -905,7 +1213,8 @@ HBRUSH UI_HandleCtlColor(HDC hdc, HWND control)
     if (control == g_ui.vizIpEdit ||
         control == g_ui.vizPortEdit ||
         control == g_ui.cmdOnEdit ||
-        control == g_ui.cmdOffEdit)
+        control == g_ui.cmdOffEdit ||
+        control == g_ui.templatesList)
     {
         SetBkMode(hdc, OPAQUE);
         SetBkColor(hdc, AppBgColor());
@@ -918,13 +1227,6 @@ HBRUSH UI_HandleCtlColor(HDC hdc, HWND control)
         SetBkMode(hdc, TRANSPARENT);
         SetTextColor(hdc, g_ui.lastVizOk ? SuccessColor() : DangerColor());
         return (control == g_ui.settingsStatus) ? g_ui.panelBrush : g_ui.cardBrush;
-    }
-
-    if (control == g_ui.templatesPlaceholder)
-    {
-        SetBkMode(hdc, TRANSPARENT);
-        SetTextColor(hdc, MutedTextColor());
-        return g_ui.panelBrush;
     }
 
     if (control == g_ui.previewCheck || control == g_ui.autoScrollCheck)
@@ -942,6 +1244,7 @@ HBRUSH UI_HandleCtlColor(HDC hdc, HWND control)
     }
 
     if (control == g_ui.deviceLabel ||
+        control == g_ui.templateLabel ||
         control == g_ui.rendererLabel ||
         control == g_ui.detectThresholdLabel ||
         control == g_ui.detectThresholdValue ||
@@ -952,11 +1255,12 @@ HBRUSH UI_HandleCtlColor(HDC hdc, HWND control)
         control == g_ui.vizIpLabel ||
         control == g_ui.vizPortLabel ||
         control == g_ui.cmdOnLabel ||
-        control == g_ui.cmdOffLabel)
+        control == g_ui.cmdOffLabel ||
+        control == g_ui.templateDetails)
     {
         SetBkMode(hdc, TRANSPARENT);
         SetTextColor(hdc, BodyTextColor());
-        if (control == g_ui.deviceLabel || control == g_ui.rendererLabel)
+        if (control == g_ui.deviceLabel || control == g_ui.templateLabel || control == g_ui.rendererLabel)
             return g_ui.cardBrush;
         return g_ui.panelBrush;
     }
@@ -999,6 +1303,10 @@ bool UI_HandleDrawItem(const DRAWITEMSTRUCT& drawItem, const AppState& state)
         break;
     case IDC_REFRESH_BUTTON:
     case IDC_CLEAR_LOG_BUTTON:
+    case IDC_TEMPLATE_NEW_BUTTON:
+    case IDC_TEMPLATE_EDIT_BUTTON:
+    case IDC_TEMPLATE_DELETE_BUTTON:
+    case IDC_TEMPLATE_ACTIVATE_BUTTON:
         fill = hot ? RGB(241, 245, 249) : RGB(255, 255, 255);
         border = hot ? RGB(180, 192, 208) : RGB(203, 213, 225);
         text = BodyTextColor();
@@ -1096,6 +1404,7 @@ void UI_SyncState(const AppState& state)
     UpdateRendererStatus(state);
     UpdateNextCueButton(state);
     UpdateDeviceList(state);
+    UpdateTemplateControls(state);
     UpdateLogView(state);
 }
 
@@ -1151,7 +1460,10 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
 
     case WM_SHOWWINDOW:
         if (wParam && g_ui.state)
+        {
             SyncSettingsFromState(*g_ui.state);
+            UpdateTemplateControls(*g_ui.state);
+        }
         break;
 
     case WM_SIZE:
@@ -1175,6 +1487,53 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
         case IDC_SETTINGS_TAB_TEMPLATES:
             ShowSettingsTab(2);
             return 0;
+        case IDC_TEMPLATES_LIST:
+            if (HIWORD(wParam) == LBN_SELCHANGE && g_ui.state)
+            {
+                g_ui.templateSelectionName = GetSelectedTemplateNameFromList();
+                UpdateTemplateDetails(*g_ui.state);
+                return 0;
+            }
+            break;
+        case IDC_TEMPLATE_NEW_BUTTON:
+            if (g_ui.state)
+            {
+                RunTemplateEditor(*g_ui.state, nullptr, "");
+                return 0;
+            }
+            break;
+        case IDC_TEMPLATE_EDIT_BUTTON:
+            if (g_ui.state)
+            {
+                const std::string selectedName = GetSelectedTemplateNameFromList();
+                if (const TemplateManifest* manifest = Templates_FindByName(*g_ui.state, selectedName))
+                {
+                    RunTemplateEditor(*g_ui.state, manifest, selectedName);
+                    return 0;
+                }
+            }
+            break;
+        case IDC_TEMPLATE_DELETE_BUTTON:
+            if (g_ui.state)
+            {
+                DeleteSelectedTemplate(*g_ui.state);
+                return 0;
+            }
+            break;
+        case IDC_TEMPLATE_ACTIVATE_BUTTON:
+            if (g_ui.state)
+            {
+                const std::string selectedName = GetSelectedTemplateNameFromList();
+                if (!selectedName.empty())
+                {
+                    Detection_SetActiveTemplate(*g_ui.state, selectedName);
+                    g_ui.templateSignature.clear();
+                    g_ui.templateSelectionName = selectedName;
+                    SaveConfigAndRefresh(*g_ui.state);
+                    return 0;
+                }
+            }
+            break;
         }
         if (LOWORD(wParam) == IDC_SETTINGS_SAVE_BUTTON && g_ui.state)
         {

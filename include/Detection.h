@@ -1,10 +1,9 @@
 #pragma once
 #include "AppState.h"
 
-// Load wiper_in.png and wiper_out.png from the EXE directory.
-// Resizes both to the current WORK_W x WORK_H grayscale working size.
-// Returns true if at least one template loaded successfully.
-bool Detection_LoadTemplates(AppState& state);
+bool Detection_LoadTemplateCatalog(AppState& state);
+bool Detection_LoadActiveTemplate(AppState& state);
+bool Detection_SetActiveTemplate(AppState& state, const std::string& name);
 
 // Returns the active template (IN or OUT) based on current cue state.
 // Returns an empty Mat if the relevant template failed to load.
@@ -20,6 +19,4 @@ bool Detection_ProcessFrame(const cv::Mat& grayResized, AppState& state);
 // Flip cue state (IN <-> OUT) manually (Change Cue button)
 void Detection_FlipCue(AppState& state);
 
-// Re-resize already-loaded raw templates to current WORK_W x WORK_H.
-// Called automatically when DeckLink format detection changes the resolution.
-void Detection_ResizeTemplates(AppState& state);
+void Detection_RebuildRuntimeTemplateAssets(AppState& state);

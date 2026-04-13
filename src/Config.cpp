@@ -66,6 +66,7 @@ void Config_Load(AppState& state)
     state.selectedSourceKind = (sourceType == "blackmagic") ? VideoSourceKind::Blackmagic : VideoSourceKind::Webcam;
     state.cameraIndex = IniGetInt("Video", "device_id", state.cameraIndex, ip);
     state.blackmagicDisplayMode = IniGetInt("Video", "blackmagic_display_mode", state.blackmagicDisplayMode, ip);
+    state.activeTemplateName = IniGetString("Templates", "active_template", state.activeTemplateName.c_str(), ip);
 
     AddLog(CurrentTimestamp() + " | config.ini loaded from: " + iniPath);
 }
@@ -91,6 +92,7 @@ void Config_Save(const AppState& state)
         state.selectedSourceKind == VideoSourceKind::Blackmagic ? "blackmagic" : "webcam", ip);
     WritePrivateProfileStringA("Video", "device_id", std::to_string(state.cameraIndex).c_str(), ip);
     WritePrivateProfileStringA("Video", "blackmagic_display_mode", std::to_string(state.blackmagicDisplayMode).c_str(), ip);
+    WritePrivateProfileStringA("Templates", "active_template", state.activeTemplateName.c_str(), ip);
 
     AddLog(CurrentTimestamp() + " | config.ini saved");
 }

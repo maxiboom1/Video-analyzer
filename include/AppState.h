@@ -3,6 +3,7 @@
 #include <chrono>
 #include <string>
 #include <vector>
+#include "Templates.h"
 
 // -----------------------------------------------------------------------
 // Fixed working size for template matching.
@@ -67,7 +68,15 @@ struct AppState
     // --- Cue ---
     CueState cueState = CueState::WIPER_IN;
 
-    // --- Templates (resized to WORK_W x WORK_H, grayscale) ---
+    // --- Template catalog / selection ---
+    std::vector<TemplateManifest> templates;
+    std::string activeTemplateName;
+    std::string activeTemplateFolder;
+    NormalizedRoi activeInRoi;
+    NormalizedRoi activeOutRoi;
+    bool activeTemplateLoaded = false;
+
+    // --- Runtime template assets ---
     cv::Mat tmplIn;
     cv::Mat tmplOut;
 
@@ -75,6 +84,10 @@ struct AppState
     // when DeckLink format detection changes WORK_W/H at runtime
     cv::Mat tmplInRaw;
     cv::Mat tmplOutRaw;
+    cv::Rect tmplInRect{ 0, 0, 0, 0 };
+    cv::Rect tmplOutRect{ 0, 0, 0, 0 };
+    int tmplWorkWidth = 0;
+    int tmplWorkHeight = 0;
 
     // --- Viz config ---
     char    vizIp[64] = "127.0.0.1";

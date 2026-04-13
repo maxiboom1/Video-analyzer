@@ -5,6 +5,7 @@
 namespace
 {
     cv::Mat s_previewFrame;
+    cv::Mat s_cueFrame;
 
     RECT FitRectPreservingAspect(const RECT& bounds, int srcW, int srcH)
     {
@@ -42,6 +43,54 @@ namespace
         DrawTextA(hdc, text, -1, const_cast<RECT*>(&rect),
                   DT_CENTER | DT_VCENTER | DT_SINGLELINE);
     }
+
+    void PaintMatFit(HDC hdc, const RECT& bounds, const cv::Mat& frame)
+    {
+        if (frame.empty())
+            return;
+
+        cv::Mat bgraFrame;
+        switch (frame.channels())
+        {
+        case 4:
+            bgraFrame = frame;
+            break;
+        case 3:
+            cv::cvtColor(frame, bgraFrame, cv::COLOR_BGR2BGRA);
+            break;
+        case 1:
+            cv::cvtColor(frame, bgraFrame, cv::COLOR_GRAY2BGRA);
+            break;
+        default:
+            return;
+        }
+
+        RECT drawRect = FitRectPreservingAspect(bounds, bgraFrame.cols, bgraFrame.rows);
+
+        BITMAPINFO bmi = {};
+        bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+        bmi.bmiHeader.biWidth = bgraFrame.cols;
+        bmi.bmiHeader.biHeight = -bgraFrame.rows;
+        bmi.bmiHeader.biPlanes = 1;
+        bmi.bmiHeader.biBitCount = 32;
+        bmi.bmiHeader.biCompression = BI_RGB;
+
+        SetStretchBltMode(hdc, HALFTONE);
+        StretchDIBits(
+            hdc,
+            drawRect.left,
+            drawRect.top,
+            drawRect.right - drawRect.left,
+            drawRect.bottom - drawRect.top,
+            0,
+            0,
+            bgraFrame.cols,
+            bgraFrame.rows,
+            bgraFrame.data,
+            &bmi,
+            DIB_RGB_COLORS,
+            SRCCOPY);
+    }
 }
 
 void Renderer_SetPreviewFrame(const cv::Mat& bgrFrame)
@@ -58,6 +107,18 @@ void Renderer_SetPreviewFrame(const cv::Mat& bgrFrame)
 void Renderer_ClearPreview()
 {
     s_previewFrame.release();
+    s_cueFrame.release();
+}
+
+void Renderer_SetCueFrame(const cv::Mat& frame)
+{
+    if (frame.empty())
+    {
+        s_cueFrame.release();
+        return;
+    }
+
+    s_cueFrame = frame.clone();
 }
 
 void Renderer_PaintPreview(HDC hdc, const RECT& clientRect, bool previewEnabled)
@@ -86,31 +147,42 @@ void Renderer_PaintPreview(HDC hdc, const RECT& clientRect, bool previewEnabled)
     }
     else
     {
-        RECT drawRect = FitRectPreservingAspect(localRect, s_previewFrame.cols, s_previewFrame.rows);
+        PaintMatFit(memDc, localRect, s_previewFrame);
+    }
 
-        BITMAPINFO bmi = {};
-        bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-        bmi.bmiHeader.biWidth = s_previewFrame.cols;
-        bmi.bmiHeader.biHeight = -s_previewFrame.rows;
-        bmi.bmiHeader.biPlanes = 1;
-        bmi.bmiHeader.biBitCount = 24;
-        bmi.bmiHeader.biCompression = BI_RGB;
+    BitBlt(hdc, clientRect.left, clientRect.top, width, height, memDc, 0, 0, SRCCOPY);
+    SelectObject(memDc, oldBitmap);
+    DeleteObject(memBitmap);
+    DeleteDC(memDc);
+}
 
-        SetStretchBltMode(memDc, HALFTONE);
-        StretchDIBits(
-            memDc,
-            drawRect.left,
-            drawRect.top,
-            drawRect.right - drawRect.left,
-            drawRect.bottom - drawRect.top,
-            0,
-            0,
-            s_previewFrame.cols,
-            s_previewFrame.rows,
-            s_previewFrame.data,
-            &bmi,
-            DIB_RGB_COLORS,
-            SRCCOPY);
+void Renderer_PaintCuePreview(HDC hdc, const RECT& clientRect, bool hasTemplate)
+{
+    const int width = clientRect.right - clientRect.left;
+    const int height = clientRect.bottom - clientRect.top;
+    if (width <= 0 || height <= 0)
+        return;
+
+    HDC memDc = CreateCompatibleDC(hdc);
+    HBITMAP memBitmap = CreateCompatibleBitmap(hdc, width, height);
+    HGDIOBJ oldBitmap = SelectObject(memDc, memBitmap);
+
+    RECT localRect{ 0, 0, width, height };
+    HBRUSH bg = CreateSolidBrush(RGB(13, 18, 24));
+    FillRect(memDc, &localRect, bg);
+    DeleteObject(bg);
+
+    if (!hasTemplate)
+    {
+        DrawCenteredText(memDc, localRect, "No template.");
+    }
+    else if (s_cueFrame.empty())
+    {
+        DrawCenteredText(memDc, localRect, "No cue image.");
+    }
+    else
+    {
+        PaintMatFit(memDc, localRect, s_cueFrame);
     }
 
     BitBlt(hdc, clientRect.left, clientRect.top, width, height, memDc, 0, 0, SRCCOPY);

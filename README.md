@@ -1,4 +1,4 @@
-# Video Analyzer v1.0.2
+# Video Analyzer v1.0.3
 
 ## Overview
 
@@ -7,9 +7,9 @@ It monitors a selected video source, runs template-based image detection against
 an active `IN` / `OUT` template pair, and sends Viz engine commands when the cue
 state changes.
 
-Version `1.0.2` includes the ROI preview rendering fix on top of the native
-Win32 operator UI, template catalog, ROI-based template designer, and
-centralized app versioning.
+Version `1.0.3` refines the operator main window with a cleaner control block,
+footer connection status, and live next-cue target preview on top of the native
+Win32 template workflow and centralized app versioning.
 
 ## Main Window
 
@@ -18,12 +18,12 @@ The operator-facing main window is intentionally minimal:
 - top bar with the app header and a `Settings` button
 - control strip with:
   - video device dropdown
-  - `Refresh`
   - active template dropdown
-  - renderer connection status
-  - `Next Cue`
+  - square `Next Cue` button
+  - next-cue target image preview based on the active template ROI crop
 - preview section with a `Preview` toggle and the live preview area
 - log section with `Auto-scroll`, `Clear`, and the log output
+- footer connection line with the current Viz connection status
 
 Changing the active template from the main window switches live detection
 immediately and persists the selection to `config.ini`.
@@ -140,6 +140,14 @@ All runtime files are loaded from the executable directory.
 
 - fixed ROI editor image rendering for informative or high-detail frames by switching the preview paint path to a 32-bit BGRA DIB
 - kept the native template workflow, operator UI, and centralized versioning introduced in `1.0.1`
+
+### 1.0.3
+
+- removed the manual video-device `Refresh` button from the main operator window
+- moved the Viz connection status to the bottom-left footer under the log section
+- added a next-cue target preview panel that shows the ROI-cropped active template image
+- changed the next-cue control from a full-width strip to a square operator button plus image preview layout
+- removed the `Live Preview` and `Event Log` labels from the preview and log cards
 
 ### 1.0.1
 

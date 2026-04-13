@@ -1,4 +1,4 @@
-# Blackmagic setup for Video Analyzer v1.0.1
+# Blackmagic setup for Video Analyzer v1.0.3
 
 ## Current state
 
@@ -40,7 +40,7 @@ Use one of these targets:
 
 Blackmagic capture should be treated as x64-only.
 
-## Runtime behavior in 1.0.1
+## Runtime behavior in 1.0.3
 
 - Blackmagic devices appear in the same device dropdown as webcams
 - capture starts with `1080i50` as the initial mode

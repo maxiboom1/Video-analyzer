@@ -22,6 +22,7 @@
 #pragma comment(lib, "uxtheme.lib")
 
 LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+LRESULT CALLBACK CuePreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 namespace
@@ -40,6 +41,7 @@ namespace
         IDC_TEMPLATE_COMBO,
         IDC_RENDERER_STATUS,
         IDC_NEXT_CUE_BUTTON,
+        IDC_CUE_PREVIEW_WINDOW,
         IDC_PREVIEW_CHECK,
         IDC_PREVIEW_WINDOW,
         IDC_AUTOSCROLL_CHECK,
@@ -91,12 +93,12 @@ namespace
         HWND settingsButton = nullptr;
         HWND deviceLabel = nullptr;
         HWND deviceCombo = nullptr;
-        HWND refreshButton = nullptr;
         HWND templateLabel = nullptr;
         HWND templateCombo = nullptr;
         HWND rendererLabel = nullptr;
         HWND rendererStatus = nullptr;
         HWND nextCueButton = nullptr;
+        HWND cuePreviewWindow = nullptr;
         HWND previewCheck = nullptr;
         HWND previewWindow = nullptr;
         HWND autoScrollCheck = nullptr;
@@ -319,6 +321,17 @@ namespace
         for (const auto& dev : state.availableDevices)
             oss << static_cast<int>(dev.kind) << ":" << dev.id << ":" << dev.displayName << "|";
         return oss.str();
+    }
+
+    void UpdateCuePreview(const AppState& state)
+    {
+        if (state.activeTemplateLoaded)
+            Renderer_SetCueFrame(Detection_ActiveTemplate(state));
+        else
+            Renderer_SetCueFrame(cv::Mat());
+
+        if (g_ui.cuePreviewWindow)
+            InvalidateRect(g_ui.cuePreviewWindow, nullptr, FALSE);
     }
 
     std::string FormatRoiSummary(const NormalizedRoi& roi)
@@ -603,10 +616,10 @@ namespace
 
     void UpdateRendererStatus(const AppState& state)
     {
-        std::ostringstream mainText;
-        mainText << state.vizIp << ":" << state.vizPort << " ["
-                 << (state.lastVizOk ? "Connected" : state.lastVizMsg) << "]";
-        SetWindowTextA(g_ui.rendererStatus, mainText.str().c_str());
+        std::ostringstream statusText;
+        statusText << state.vizIp << ":" << state.vizPort << " ["
+                   << (state.lastVizOk ? "Connected" : state.lastVizMsg) << "]";
+        SetWindowTextA(g_ui.rendererStatus, statusText.str().c_str());
 
         std::ostringstream settingsText;
         settingsText << "Status: " << state.vizIp << ":" << state.vizPort << " ["
@@ -620,7 +633,7 @@ namespace
     {
         SetWindowTextA(
             g_ui.nextCueButton,
-            state.cueState == CueState::WIPER_IN ? "NEXT CUE: WIPER IN" : "NEXT CUE: WIPER OUT");
+            state.cueState == CueState::WIPER_IN ? "NEXT CUE\nWIPER IN" : "NEXT CUE\nWIPER OUT");
     }
 
     void UpdateLogView(const AppState& state)
@@ -686,23 +699,27 @@ namespace
         MoveWindow(g_ui.settingsButton, width - kMargin - 126, contentTop + 2, 118, 34, TRUE);
 
         const int controlTop = contentTop + 54;
-        g_ui.controlCard = { contentLeft, controlTop, width - kMargin, controlTop + 152 };
+        g_ui.controlCard = { contentLeft, controlTop, width - kMargin, controlTop + 202 };
         MoveWindow(g_ui.deviceLabel, contentLeft + 20, controlTop + 18, 100, 22, TRUE);
-        MoveWindow(g_ui.deviceCombo, contentLeft + 126, controlTop + 14, std::max(180, contentWidth - 264), 240, TRUE);
-        MoveWindow(g_ui.refreshButton, width - kMargin - 112, controlTop + 12, 92, 34, TRUE);
+        MoveWindow(g_ui.deviceCombo, contentLeft + 126, controlTop + 14, std::max(220, contentWidth - 146), 240, TRUE);
 
         MoveWindow(g_ui.templateLabel, contentLeft + 20, controlTop + 52, 100, 22, TRUE);
         MoveWindow(g_ui.templateCombo, contentLeft + 126, controlTop + 48, contentWidth - 146, 240, TRUE);
 
-        MoveWindow(g_ui.rendererLabel, contentLeft + 20, controlTop + 86, 100, 22, TRUE);
-        MoveWindow(g_ui.rendererStatus, contentLeft + 126, controlTop + 88, contentWidth - 146, 20, TRUE);
-        MoveWindow(g_ui.nextCueButton, contentLeft + 20, controlTop + 112, contentWidth - 40, 30, TRUE);
+        const int cueTop = controlTop + 88;
+        const int cueHeight = 96;
+        const int cueButtonSize = cueHeight;
+        const int cuePreviewLeft = contentLeft + 20 + cueButtonSize + 12;
+        const int cuePreviewWidth = std::max(120, contentWidth - 52 - cueButtonSize - 12);
+        MoveWindow(g_ui.nextCueButton, contentLeft + 20, cueTop, cueButtonSize, cueHeight, TRUE);
+        MoveWindow(g_ui.cuePreviewWindow, cuePreviewLeft, cueTop, cuePreviewWidth, cueHeight, TRUE);
 
-        const int previewTop = controlTop + 164;
-        const int availableHeight = std::max(120, height - previewTop - kMargin);
+        const int previewTop = controlTop + 214;
+        const int footerTop = std::max(previewTop + 140, height - kMargin - 20);
+        const int availableHeight = std::max(120, footerTop - previewTop - 12);
         const int previewSectionHeight = std::max(250, static_cast<int>(availableHeight * 0.50f));
         const int logTop = previewTop + previewSectionHeight + 12;
-        const int logHeight = std::max(120, height - logTop - kMargin);
+        const int logHeight = std::max(120, footerTop - logTop - 10);
         g_ui.previewCard = { contentLeft, previewTop, width - kMargin, previewTop + previewSectionHeight };
         g_ui.logCard = { contentLeft, logTop, width - kMargin, logTop + logHeight };
 
@@ -712,6 +729,8 @@ namespace
         MoveWindow(g_ui.autoScrollCheck, contentLeft + 20, logTop + 14, 140, 24, TRUE);
         MoveWindow(g_ui.clearLogButton, width - kMargin - 112, logTop + 10, 92, 32, TRUE);
         MoveWindow(g_ui.logEdit, contentLeft + 20, logTop + 52, contentWidth - 40, std::max(80, logHeight - 72), TRUE);
+        MoveWindow(g_ui.rendererLabel, contentLeft + 8, footerTop, 96, 22, TRUE);
+        MoveWindow(g_ui.rendererStatus, contentLeft + 100, footerTop, std::max(180, contentWidth - 108), 22, TRUE);
 
         InvalidateRect(g_ui.mainWindow, nullptr, TRUE);
     }
@@ -943,6 +962,15 @@ namespace
         previewClass.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
         RegisterClassExA(&previewClass);
 
+        WNDCLASSEXA cueClass = {};
+        cueClass.cbSize = sizeof(cueClass);
+        cueClass.lpfnWndProc = CuePreviewWndProc;
+        cueClass.hInstance = instance;
+        cueClass.lpszClassName = "VideoAnalyzerCuePreviewWindow";
+        cueClass.hCursor = LoadCursor(nullptr, IDC_ARROW);
+        cueClass.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+        RegisterClassExA(&cueClass);
+
         WNDCLASSEXA settingsClass = {};
         settingsClass.cbSize = sizeof(settingsClass);
         settingsClass.lpfnWndProc = SettingsWndProc;
@@ -1007,12 +1035,12 @@ bool UI_Create(HWND hwnd, HINSTANCE instance, AppState& state)
     g_ui.settingsButton = CreateButtonA("Settings", IDC_SETTINGS_BUTTON, hwnd, true);
     g_ui.deviceLabel = CreateControlA(0, "STATIC", "Video Device", WS_CHILD | WS_VISIBLE, 0, hwnd);
     g_ui.deviceCombo = CreateControlA(0, "COMBOBOX", "", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, IDC_DEVICE_COMBO, hwnd);
-    g_ui.refreshButton = CreateButtonA("Refresh", IDC_REFRESH_BUTTON, hwnd, true);
     g_ui.templateLabel = CreateControlA(0, "STATIC", "Template", WS_CHILD | WS_VISIBLE, 0, hwnd);
     g_ui.templateCombo = CreateControlA(0, "COMBOBOX", "", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, IDC_TEMPLATE_COMBO, hwnd);
-    g_ui.rendererLabel = CreateControlA(0, "STATIC", "Renderer", WS_CHILD | WS_VISIBLE, 0, hwnd);
+    g_ui.rendererLabel = CreateControlA(0, "STATIC", "Connection:", WS_CHILD | WS_VISIBLE, 0, hwnd);
     g_ui.rendererStatus = CreateControlA(0, "STATIC", "", WS_CHILD | WS_VISIBLE, IDC_RENDERER_STATUS, hwnd);
     g_ui.nextCueButton = CreateButtonA("", IDC_NEXT_CUE_BUTTON, hwnd, true);
+    g_ui.cuePreviewWindow = CreateControlA(0, "VideoAnalyzerCuePreviewWindow", "", WS_CHILD | WS_VISIBLE, IDC_CUE_PREVIEW_WINDOW, hwnd);
     g_ui.previewCheck = CreateControlA(0, "BUTTON", "Preview", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, IDC_PREVIEW_CHECK, hwnd);
     g_ui.previewWindow = CreateControlA(0, "VideoAnalyzerPreviewWindow", "", WS_CHILD | WS_VISIBLE, IDC_PREVIEW_WINDOW, hwnd);
     g_ui.autoScrollCheck = CreateControlA(0, "BUTTON", "Auto-scroll", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, IDC_AUTOSCROLL_CHECK, hwnd);
@@ -1028,6 +1056,7 @@ bool UI_Create(HWND hwnd, HINSTANCE instance, AppState& state)
     SetControlFont(g_ui.deviceLabel, g_ui.sectionFont);
     SetControlFont(g_ui.templateLabel, g_ui.sectionFont);
     SetControlFont(g_ui.rendererLabel, g_ui.sectionFont);
+    SetControlFont(g_ui.rendererStatus, g_ui.sectionFont);
 
     g_ui.settingsWindow = CreateWindowExA(
         WS_EX_APPWINDOW,
@@ -1057,6 +1086,7 @@ bool UI_Create(HWND hwnd, HINSTANCE instance, AppState& state)
     SetCheckState(g_ui.autoScrollCheck, state.autoScrollLog);
     UpdateRendererStatus(state);
     UpdateNextCueButton(state);
+    UpdateCuePreview(state);
     UpdateDeviceList(state);
     UpdateTemplateControls(state);
     UpdateLogView(state);
@@ -1170,13 +1200,10 @@ bool UI_HandleMainCommand(WPARAM wParam, LPARAM, AppState& state)
         }
         break;
 
-    case IDC_REFRESH_BUTTON:
-        state.deviceListDirty = true;
-        return true;
-
     case IDC_NEXT_CUE_BUTTON:
         Detection_FlipCue(state);
         UpdateNextCueButton(state);
+        UpdateCuePreview(state);
         return true;
 
     case IDC_PREVIEW_CHECK:
@@ -1226,7 +1253,7 @@ HBRUSH UI_HandleCtlColor(HDC hdc, HWND control)
     {
         SetBkMode(hdc, TRANSPARENT);
         SetTextColor(hdc, g_ui.lastVizOk ? SuccessColor() : DangerColor());
-        return (control == g_ui.settingsStatus) ? g_ui.panelBrush : g_ui.cardBrush;
+        return (control == g_ui.settingsStatus) ? g_ui.panelBrush : g_ui.appBrush;
     }
 
     if (control == g_ui.previewCheck || control == g_ui.autoScrollCheck)
@@ -1260,8 +1287,10 @@ HBRUSH UI_HandleCtlColor(HDC hdc, HWND control)
     {
         SetBkMode(hdc, TRANSPARENT);
         SetTextColor(hdc, BodyTextColor());
-        if (control == g_ui.deviceLabel || control == g_ui.templateLabel || control == g_ui.rendererLabel)
+        if (control == g_ui.deviceLabel || control == g_ui.templateLabel)
             return g_ui.cardBrush;
+        if (control == g_ui.rendererLabel)
+            return g_ui.appBrush;
         return g_ui.panelBrush;
     }
 
@@ -1301,7 +1330,6 @@ bool UI_HandleDrawItem(const DRAWITEMSTRUCT& drawItem, const AppState& state)
         border = hot ? RGB(194, 206, 221) : RGB(214, 223, 233);
         text = AccentColor();
         break;
-    case IDC_REFRESH_BUTTON:
     case IDC_CLEAR_LOG_BUTTON:
     case IDC_TEMPLATE_NEW_BUTTON:
     case IDC_TEMPLATE_EDIT_BUTTON:
@@ -1359,7 +1387,28 @@ bool UI_HandleDrawItem(const DRAWITEMSTRUCT& drawItem, const AppState& state)
 
     wchar_t caption[256] = {};
     GetWindowTextW(drawItem.hwndItem, caption, static_cast<int>(std::size(caption)));
-    DrawTextW(hdc, caption, -1, &rect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    if (drawItem.CtlID == IDC_NEXT_CUE_BUTTON)
+    {
+        RECT textRect = rect;
+        InflateRect(&textRect, -8, -8);
+
+        RECT measureRect = textRect;
+        DrawTextW(hdc, caption, -1, &measureRect, DT_CENTER | DT_WORDBREAK | DT_CALCRECT);
+
+        const int availableHeight = textRect.bottom - textRect.top;
+        const int textHeight = measureRect.bottom - measureRect.top;
+        if (textHeight < availableHeight)
+        {
+            textRect.top += (availableHeight - textHeight) / 2;
+            textRect.bottom = textRect.top + textHeight;
+        }
+
+        DrawTextW(hdc, caption, -1, &textRect, DT_CENTER | DT_WORDBREAK);
+    }
+    else
+    {
+        DrawTextW(hdc, caption, -1, &rect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    }
 
     if (drawItem.itemState & ODS_FOCUS)
     {
@@ -1384,17 +1433,6 @@ void UI_PaintMain(HDC hdc)
     FillRoundedRect(hdc, g_ui.previewCard, CardBgColor(), CardBorderColor());
     FillRoundedRect(hdc, g_ui.logCard, CardBgColor(), CardBorderColor());
 
-    RECT sectionRect = g_ui.previewCard;
-    sectionRect.left += 180;
-    sectionRect.top += 10;
-    sectionRect.bottom = sectionRect.top + 22;
-    DrawSectionLabel(hdc, sectionRect, L"Live Preview");
-
-    sectionRect = g_ui.logCard;
-    sectionRect.left += 180;
-    sectionRect.top += 10;
-    sectionRect.bottom = sectionRect.top + 22;
-    DrawSectionLabel(hdc, sectionRect, L"Event Log");
 }
 
 void UI_SyncState(const AppState& state)
@@ -1403,6 +1441,7 @@ void UI_SyncState(const AppState& state)
     SetCheckState(g_ui.autoScrollCheck, state.autoScrollLog);
     UpdateRendererStatus(state);
     UpdateNextCueButton(state);
+    UpdateCuePreview(state);
     UpdateDeviceList(state);
     UpdateTemplateControls(state);
     UpdateLogView(state);
@@ -1434,6 +1473,28 @@ LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         RECT rect{};
         GetClientRect(hwnd, &rect);
         Renderer_PaintPreview(hdc, rect, g_ui.state ? g_ui.state->previewEnabled : false);
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
+    }
+
+    return DefWindowProcA(hwnd, msg, wParam, lParam);
+}
+
+LRESULT CALLBACK CuePreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    switch (msg)
+    {
+    case WM_ERASEBKGND:
+        return 1;
+
+    case WM_PAINT:
+    {
+        PAINTSTRUCT ps{};
+        HDC hdc = BeginPaint(hwnd, &ps);
+        RECT rect{};
+        GetClientRect(hwnd, &rect);
+        Renderer_PaintCuePreview(hdc, rect, g_ui.state ? g_ui.state->activeTemplateLoaded : false);
         EndPaint(hwnd, &ps);
         return 0;
     }

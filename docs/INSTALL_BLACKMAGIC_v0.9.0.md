@@ -1,4 +1,4 @@
-# Blackmagic setup for Video Analyzer v0.9.21
+# Blackmagic setup for Video Analyzer v1.0.1
 
 ## Current state
 
@@ -40,12 +40,13 @@ Use one of these targets:
 
 Blackmagic capture should be treated as x64-only.
 
-## Runtime behavior in 0.9.21
+## Runtime behavior in 1.0.1
 
 - Blackmagic devices appear in the same device dropdown as webcams
 - capture starts with `1080i50` as the initial mode
 - format detection can reconfigure capture when the incoming signal is detected
 - preview is drawn in the native Win32 preview pane
+- detection runs against the currently active template selected in the main UI
 
 ## Current limitations
 

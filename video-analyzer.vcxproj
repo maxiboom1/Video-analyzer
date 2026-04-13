@@ -147,6 +147,8 @@
     <ClCompile Include="src\Detection.cpp" />
     <ClCompile Include="src\Logger.cpp" />
     <ClCompile Include="src\Renderer.cpp" />
+    <ClCompile Include="src\Scorebug.cpp" />
+    <ClCompile Include="src\ScorebugDialogs.cpp" />
     <ClCompile Include="src\TemplateDialogs.cpp" />
     <ClCompile Include="src\Templates.cpp" />
     <ClCompile Include="src\VideoSource.cpp" />
@@ -161,6 +163,8 @@
     <ClInclude Include="include\Detection.h" />
     <ClInclude Include="include\Logger.h" />
     <ClInclude Include="include\Renderer.h" />
+    <ClInclude Include="include\Scorebug.h" />
+    <ClInclude Include="include\ScorebugDialogs.h" />
     <ClInclude Include="include\TemplateDialogs.h" />
     <ClInclude Include="include\Templates.h" />
     <ClInclude Include="include\UI.h" />

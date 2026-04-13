@@ -67,6 +67,10 @@ void Config_Load(AppState& state)
     state.cameraIndex = IniGetInt("Video", "device_id", state.cameraIndex, ip);
     state.blackmagicDisplayMode = IniGetInt("Video", "blackmagic_display_mode", state.blackmagicDisplayMode, ip);
     state.activeTemplateName = IniGetString("Templates", "active_template", state.activeTemplateName.c_str(), ip);
+    state.activeScorebugLayoutName = IniGetString("Scorebug", "active_layout", state.activeScorebugLayoutName.c_str(), ip);
+    state.scorebugOcrEnabled = IniGetInt("Scorebug", "enabled", state.scorebugOcrEnabled ? 1 : 0, ip) != 0;
+    state.scorebugDetectThreshold = static_cast<float>(
+        IniGetInt("Scorebug", "detect_threshold_pct", static_cast<int>(state.scorebugDetectThreshold * 100.0f), ip)) / 100.0f;
 
     AddLog(CurrentTimestamp() + " | config.ini loaded from: " + iniPath);
 }
@@ -93,6 +97,10 @@ void Config_Save(const AppState& state)
     WritePrivateProfileStringA("Video", "device_id", std::to_string(state.cameraIndex).c_str(), ip);
     WritePrivateProfileStringA("Video", "blackmagic_display_mode", std::to_string(state.blackmagicDisplayMode).c_str(), ip);
     WritePrivateProfileStringA("Templates", "active_template", state.activeTemplateName.c_str(), ip);
+    WritePrivateProfileStringA("Scorebug", "active_layout", state.activeScorebugLayoutName.c_str(), ip);
+    WritePrivateProfileStringA("Scorebug", "enabled", state.scorebugOcrEnabled ? "1" : "0", ip);
+    WritePrivateProfileStringA("Scorebug", "detect_threshold_pct",
+        std::to_string(static_cast<int>(state.scorebugDetectThreshold * 100.0f)).c_str(), ip);
 
     AddLog(CurrentTimestamp() + " | config.ini saved");
 }

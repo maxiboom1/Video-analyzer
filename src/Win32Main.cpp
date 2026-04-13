@@ -7,6 +7,7 @@
 #include "Config.h"
 #include "Detection.h"
 #include "Logger.h"
+#include "Scorebug.h"
 #include "UI.h"
 #include "Version.h"
 #include "VideoSource.h"
@@ -155,6 +156,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
                         Viz_SendOn(app->state);
                 }
 
+                Scorebug_ProcessFrame(frame, app->state);
+
                 if (app->state.previewEnabled)
                 {
                     previewFrame = frame.clone();
@@ -180,6 +183,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
         {
             VideoSource_Release(app->sourceCtx, app->state);
             VideoSource_Shutdown(app->sourceCtx);
+            Scorebug_Shutdown();
         }
         UI_Destroy();
         PostQuitMessage(0);
@@ -201,6 +205,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
     AppContext app;
     Config_Load(app.state);
     Detection_LoadTemplateCatalog(app.state);
+    Scorebug_LoadLayoutCatalog(app.state);
     AddLog(kAppLogBannerA);
     AddLog("Blackmagic support requires Desktop Video / driver version 16 or newer.");
 

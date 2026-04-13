@@ -3,6 +3,7 @@
 #include <chrono>
 #include <string>
 #include <vector>
+#include "Scorebug.h"
 #include "Templates.h"
 
 // -----------------------------------------------------------------------
@@ -98,4 +99,13 @@ struct AppState
     // --- Last Viz send result ---
     bool    lastVizOk = true;
     std::string lastVizMsg;
+
+    // --- Scorebug OCR ---
+    std::vector<ScorebugLayoutManifest> scorebugLayouts;
+    std::string activeScorebugLayoutName;
+    ScorebugState lastScorebugState;
+    bool scorebugOcrEnabled = true;
+    float scorebugDetectThreshold = 0.70f;
+    double lastScorebugPresenceScore = 0.0;
+    bool scorebugOnAir = false;
 };

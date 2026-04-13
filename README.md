@@ -1,4 +1,4 @@
-# Video Analyzer v1.0.1
+# Video Analyzer v1.0.2
 
 ## Overview
 
@@ -7,8 +7,9 @@ It monitors a selected video source, runs template-based image detection against
 an active `IN` / `OUT` template pair, and sends Viz engine commands when the cue
 state changes.
 
-Version `1.0.1` ships the native Win32 operator UI, template catalog, ROI-based
-template designer, and centralized app versioning.
+Version `1.0.2` includes the ROI preview rendering fix on top of the native
+Win32 operator UI, template catalog, ROI-based template designer, and
+centralized app versioning.
 
 ## Main Window
 
@@ -134,6 +135,11 @@ The project currently builds as a Win32 desktop application in `Debug|x64` and
 All runtime files are loaded from the executable directory.
 
 ## Changelog
+
+### 1.0.2
+
+- fixed ROI editor image rendering for informative or high-detail frames by switching the preview paint path to a 32-bit BGRA DIB
+- kept the native template workflow, operator UI, and centralized versioning introduced in `1.0.1`
 
 ### 1.0.1
 

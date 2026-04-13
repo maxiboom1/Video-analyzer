@@ -232,12 +232,28 @@ namespace
         if (image.empty())
             return;
 
+        cv::Mat bgraImage;
+        switch (image.channels())
+        {
+        case 4:
+            bgraImage = image;
+            break;
+        case 3:
+            cv::cvtColor(image, bgraImage, cv::COLOR_BGR2BGRA);
+            break;
+        case 1:
+            cv::cvtColor(image, bgraImage, cv::COLOR_GRAY2BGRA);
+            break;
+        default:
+            return;
+        }
+
         BITMAPINFO bmi{};
         bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-        bmi.bmiHeader.biWidth = image.cols;
-        bmi.bmiHeader.biHeight = -image.rows;
+        bmi.bmiHeader.biWidth = bgraImage.cols;
+        bmi.bmiHeader.biHeight = -bgraImage.rows;
         bmi.bmiHeader.biPlanes = 1;
-        bmi.bmiHeader.biBitCount = 24;
+        bmi.bmiHeader.biBitCount = 32;
         bmi.bmiHeader.biCompression = BI_RGB;
         SetStretchBltMode(hdc, HALFTONE);
         StretchDIBits(
@@ -248,9 +264,9 @@ namespace
             dest.bottom - dest.top,
             0,
             0,
-            image.cols,
-            image.rows,
-            image.data,
+            bgraImage.cols,
+            bgraImage.rows,
+            bgraImage.data,
             &bmi,
             DIB_RGB_COLORS,
             SRCCOPY);

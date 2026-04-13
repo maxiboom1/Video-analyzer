@@ -1,7 +1,7 @@
 #pragma once
 
 #define VIDEO_ANALYZER_APP_NAME "SegevSport Video Analyzer"
-#define VIDEO_ANALYZER_VERSION "1.0.1"
+#define VIDEO_ANALYZER_VERSION "1.0.2"
 
 inline constexpr char kAppNameA[] = VIDEO_ANALYZER_APP_NAME;
 inline constexpr char kAppVersion[] = VIDEO_ANALYZER_VERSION;

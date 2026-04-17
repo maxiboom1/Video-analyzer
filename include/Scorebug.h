@@ -9,24 +9,21 @@
 
 struct AppState;
 
-enum class ScorebugFieldType
+enum class OcrPropType
 {
-    Text = 0,
-    Integer = 1,
-    PeriodText = 2,
-    Clock = 3,
-    DecimalClock = 4
+    Number = 0,
+    Text = 1,
+    Auto = 2
 };
 
-struct ScorebugFieldDefinition
+struct OcrPropManifest
 {
+    std::string name;
     NormalizedRoi roi;
-    ScorebugFieldType type = ScorebugFieldType::Text;
-    std::string whitelist;
-    std::string preprocess = "auto";
+    OcrPropType type = OcrPropType::Auto;
 };
 
-struct ScorebugLayoutManifest
+struct OcrElementManifest
 {
     std::string name;
     int version = 1;
@@ -34,37 +31,25 @@ struct ScorebugLayoutManifest
     std::string folderPath;
     std::string referenceImagePath = "reference.png";
     NormalizedRoi frameRoi;
-
-    ScorebugFieldDefinition teamALabel;
-    ScorebugFieldDefinition teamAScore;
-    ScorebugFieldDefinition teamBLabel;
-    ScorebugFieldDefinition teamBScore;
-    ScorebugFieldDefinition period;
-    ScorebugFieldDefinition gameClock;
-    ScorebugFieldDefinition shotClock;
-
+    std::vector<OcrPropManifest> props;
     std::string createdAt;
     std::string updatedAt;
 };
 
-struct ScorebugFieldResult
+struct OcrPropResult
 {
-    bool valid = false;
+    std::string name;
     std::string value;
     double confidence = 0.0;
+    bool valid = false;
+    OcrPropType type = OcrPropType::Auto;
 };
 
-struct ScorebugState
+struct OcrElementState
 {
     bool detected = false;
-    std::string layoutName;
-    ScorebugFieldResult teamALabel;
-    ScorebugFieldResult teamAScore;
-    ScorebugFieldResult teamBLabel;
-    ScorebugFieldResult teamBScore;
-    ScorebugFieldResult period;
-    ScorebugFieldResult gameClock;
-    ScorebugFieldResult shotClock;
+    std::string elementName;
+    std::vector<OcrPropResult> props;
     std::string publishedAtIso;
 };
 
@@ -78,16 +63,28 @@ struct ScorebugSubmissionStatus
 std::string Scorebug_GetRootDirectory();
 bool Scorebug_LoadLayoutCatalog(AppState& state);
 bool Scorebug_SetActiveLayout(AppState& state, const std::string& name);
-const ScorebugLayoutManifest* Scorebug_FindLayoutByName(const AppState& state, const std::string& name);
-ScorebugLayoutManifest* Scorebug_FindLayoutByName(AppState& state, const std::string& name);
+const OcrElementManifest* Scorebug_FindLayoutByName(const AppState& state, const std::string& name);
+OcrElementManifest* Scorebug_FindLayoutByName(AppState& state, const std::string& name);
 bool Scorebug_SaveLayout(
     AppState& state,
-    const ScorebugLayoutManifest& manifest,
+    const OcrElementManifest& manifest,
     const std::string& sourceReferenceImagePath,
     const std::string& originalName,
     std::string& error);
 bool Scorebug_DeleteLayout(AppState& state, const std::string& name, std::string& error);
+bool Scorebug_SaveProp(
+    AppState& state,
+    const std::string& elementName,
+    const OcrPropManifest& prop,
+    const std::string& originalPropName,
+    std::string& error);
+bool Scorebug_DeleteProp(
+    AppState& state,
+    const std::string& elementName,
+    const std::string& propName,
+    std::string& error);
 void Scorebug_ProcessFrame(const cv::Mat& bgrFrame, AppState& state);
 void Scorebug_Shutdown();
-ScorebugState Scorebug_GetLastState();
+OcrElementState Scorebug_GetLastState();
 ScorebugSubmissionStatus Scorebug_GetStatus();
+std::string Scorebug_BuildStateJson(const OcrElementState& state);

@@ -100,12 +100,12 @@ struct AppState
     bool    lastVizOk = true;
     std::string lastVizMsg;
 
-    // --- Scorebug OCR ---
-    std::vector<ScorebugLayoutManifest> scorebugLayouts;
-    std::string activeScorebugLayoutName;
-    ScorebugState lastScorebugState;
-    bool scorebugOcrEnabled = true;
-    float scorebugDetectThreshold = 0.70f;
-    double lastScorebugPresenceScore = 0.0;
-    bool scorebugOnAir = false;
+    // --- OCR elements ---
+    std::vector<OcrElementManifest> ocrElements;
+    std::string activeOcrElementName;
+    OcrElementState lastOcrState;
+    bool ocrEnabled = true;
+    float ocrDetectThreshold = 0.70f;
+    double lastOcrPresenceScore = 0.0;
+    bool ocrOnAir = false;
 };

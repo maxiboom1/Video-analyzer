@@ -1,4 +1,4 @@
-# Video Analyzer v2.0.4
+# Video Analyzer v2.1.0
 
 ## Overview
 
@@ -7,10 +7,10 @@ It monitors a selected video source, runs template-based image detection against
 an active `IN` / `OUT` template pair, and sends Viz engine commands when the cue
 state changes.
 
-Version `2.0.4` moves live OCR output out of the event log and into a single
-operator-facing status line under the preview window. It also polishes the
-`Templates` and `Scorebug` settings tabs so preset lists, info blocks, and CRUD
-actions follow the same bottom-button layout.
+Version `2.1.0` replaces the fixed scorebug-field OCR model with a universal
+OCR element builder. Operators now define one `GFX element` ROI and up to 12
+named OCR props inside it, then apply the selected element to live runtime OCR
+only when `Save Config` is pressed.
 
 ## Main Window
 
@@ -54,17 +54,22 @@ The settings window is a native tabbed Win32 window.
   - `Edit`
   - `Delete`
   - `Set Active`
-- `Scorebug`
+- `OCR`
   - `Enable OCR`
-  - `OCR Presets` label above the layout list
+  - detect-threshold slider and current value in the top row
+  - separator line under the control band
+  - `GFX Element List`
+  - `GFX Properties`
+  - left-side `New` / `Delete` buttons for OCR elements
+  - right-side `New` / `Delete` buttons for OCR props
+  - single-click selects an element for editing
+  - double-click opens `GFX Element Editor`
+  - double-click on a property opens `GFX Property Editor`
+- `Save Config`
+  - persists OCR enabled state
   - detect threshold slider and current value
-  - scorebug layout list
-  - live OCR status details
-  - `New`
-  - `Edit`
-  - `Delete`
-  - `Set Active`
-  - Tesseract status and live detection diagnostics
+  - persists the currently selected OCR element as the active runtime OCR source
+  - does not re-save element/prop manifests
 
 ## Template System
 
@@ -106,46 +111,66 @@ The ROI editor uses drag selection on a scaled image preview and stores
 normalized coordinates, so ROI definitions remain valid across source image
 sizes and runtime resize operations.
 
-## Scorebug OCR
+## OCR Element Builder
 
-Scorebug layouts are stored on disk under:
+OCR elements are stored on disk under:
 
 ```text
-scorebugs\<layoutName>\
-    layout.json
+ocr_elements\<elementName>\
+    element.json
     reference.png
 ```
 
-Each scorebug layout contains:
+Each OCR element contains:
 
-- layout name
+- element name
 - one reference image
-- one normalized scorebug frame ROI
-- normalized field ROI for:
-  - team A label
-  - team A score
-  - team B label
-  - team B score
-  - period
-  - game clock
-  - shot clock
-- field type metadata, OCR whitelist, and preprocessing hint
+- one normalized element ROI
+- up to 12 named OCR props
+- one normalized ROI per prop, relative to the element ROI canvas
+- a prop type for each prop:
+  - `Number`
+  - `Text`
+  - `Auto`
 
 The runtime OCR pipeline:
 
-- crops the configured scorebug frame from the live video
-- crops each field ROI inside that frame
+- compares the live frame ROI against the saved reference crop to detect element presence
+- crops each configured prop ROI from inside the detected element ROI
 - preprocesses each crop with OpenCV
-- runs `tesseract.exe` per field when available
-- stabilizes values before publishing
+- runs `tesseract.exe` per prop when available
+- keeps partial results when some props are unreadable
+- stabilizes prop values before publishing
 - updates one live OCR status line under the preview area while keeping
-  scoreboard on-air / off-air transitions in the event log
+  OCR on-air / off-air transitions in the event log
 
-Current POC scope:
+Main OCR status line behavior:
 
-- one manually calibrated scorebug layout family at a time
-- OCR output is shown as one live in-app status line
-- no renderer override is implemented yet
+- OCR disabled:
+  - `[OCR Disabled]`
+- OCR enabled but no detected element:
+  - `[OCR] Element not detected`
+- OCR enabled and detected:
+  - `[OCR] <ElementName> || <PropName>: <Value> ...`
+
+Editor behavior:
+
+- `GFX Element Editor`
+  - sets the element name
+  - browses for the reference image
+  - selects the full element ROI on the full reference image
+  - saves `element.json` immediately
+- `GFX Property Editor`
+  - sets the property name
+  - sets the property type
+  - selects the property ROI on the cropped element ROI canvas
+  - saves the property change immediately into `element.json`
+
+Apply behavior:
+
+- selecting an element in the OCR tab updates only the editor-side selection
+- runtime OCR continues using the previously applied active element
+- clicking `Save Config` applies the selected OCR element to live runtime OCR
 
 ## Runtime Architecture
 
@@ -155,7 +180,7 @@ Native Win32 UI
        -> Webcam (OpenCV / DirectShow)
        -> BlackmagicSource (DeckLink SDK 16+)
     -> Template catalog / ROI designer
-    -> Scorebug catalog / ROI designer / OCR worker
+    -> OCR element catalog / ROI designer / OCR worker
     -> Detection / cue state machine
     -> Viz TCP output
 ```
@@ -173,7 +198,7 @@ Notes:
 - Visual Studio 2022 toolset (`v143`)
 - OpenCV 4.12.x installed at the paths referenced by the `.vcxproj`
 - Blackmagic Desktop Video 16+ for DeckLink capture
-- Tesseract OCR installed and reachable as `tesseract.exe` for scorebug OCR
+- Tesseract OCR installed and reachable as `tesseract.exe` for OCR elements
 
 The project currently builds as a Win32 desktop application in `Debug|x64` and
 `Release|x64`.
@@ -185,17 +210,35 @@ The project currently builds as a Win32 desktop application in `Debug|x64` and
   - detection thresholds and cooldown
   - selected source type and device id
   - active template name
-  - active scorebug layout name
-  - scorebug OCR enabled flag
+  - active OCR element name
+  - OCR enabled flag
+  - OCR detect threshold
 - `templates\<templateName>\template.json`
 - `templates\<templateName>\in.png`
 - `templates\<templateName>\out.png`
-- `scorebugs\<layoutName>\layout.json`
-- `scorebugs\<layoutName>\reference.png`
+- `ocr_elements\<elementName>\element.json`
+- `ocr_elements\<elementName>\reference.png`
 
 All runtime files are loaded from the executable directory.
 
 ## Changelog
+
+### 2.1.0
+
+- replaced the fixed scorebug OCR layout with a universal OCR element builder
+- added `ocr_elements\<elementName>\element.json` as the new OCR storage contract
+- added up to 12 named OCR props per element with `Number`, `Text`, and `Auto` types
+- added `GFX Element Editor` and `GFX Property Editor` native Win32 dialogs
+- added explicit headings and visible labels inside the OCR editor and ROI selector windows
+- changed property ROI editing to use the cropped element ROI canvas instead of the full frame
+- changed the settings tab label from `Scorebug` to `OCR`
+- rebuilt the OCR settings tab into side-by-side `GFX Element List` and `GFX Properties` panes
+- reduced OCR tab selection jitter by avoiding unnecessary per-frame list repopulation
+- replaced the OCR tab separator with a thinner custom-painted divider
+- changed OCR runtime apply behavior so element and prop edits save immediately, but live OCR switches only on `Save Config`
+- changed live OCR output and JSON generation to use generic prop names instead of hard-coded team/clock fields
+- improved OCR preprocessing by trying multiple thresholded image variants and type-specific Tesseract settings before choosing the best candidate
+- bumped the app version to `2.1.0` through the centralized version source
 
 ### 2.0.4
 

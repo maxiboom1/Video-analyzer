@@ -206,6 +206,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
     Config_Load(app.state);
     Detection_LoadTemplateCatalog(app.state);
     Scorebug_LoadLayoutCatalog(app.state);
+    Scorebug_SetActiveLayout(app.state, app.state.activeOcrElementName);
     AddLog(kAppLogBannerA);
     AddLog("Blackmagic support requires Desktop Video / driver version 16 or newer.");
 

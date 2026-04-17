@@ -5,23 +5,31 @@
 #include <string>
 #include <windows.h>
 
-struct ScorebugDraft
+struct OcrElementDraft
 {
-    std::string layoutName;
+    std::string name;
     std::string referenceImagePath;
     NormalizedRoi frameRoi;
-    ScorebugFieldDefinition teamALabel;
-    ScorebugFieldDefinition teamAScore;
-    ScorebugFieldDefinition teamBLabel;
-    ScorebugFieldDefinition teamBScore;
-    ScorebugFieldDefinition period;
-    ScorebugFieldDefinition gameClock;
-    ScorebugFieldDefinition shotClock;
 };
 
-bool ScorebugDialogs_ShowEditor(
+struct OcrPropDraft
+{
+    std::string name;
+    OcrPropType type = OcrPropType::Auto;
+    NormalizedRoi roi;
+};
+
+bool ScorebugDialogs_ShowElementEditor(
     HWND owner,
     HINSTANCE instance,
-    const ScorebugLayoutManifest* existing,
-    ScorebugDraft& draft,
+    const OcrElementManifest* existing,
+    OcrElementDraft& draft,
+    std::string& error);
+
+bool ScorebugDialogs_ShowPropEditor(
+    HWND owner,
+    HINSTANCE instance,
+    const OcrElementManifest& element,
+    const OcrPropManifest* existing,
+    OcrPropDraft& draft,
     std::string& error);

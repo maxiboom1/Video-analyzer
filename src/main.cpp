@@ -13,8 +13,10 @@
 #include "Detection.h"
 #include "VizConnection.h"
 #include "Config.h"
+#include "CueCommands.h"
 #include "UI.h"
 #include "Logger.h"
+#include "StartupAuth.h"
 
 #include <opencv2/opencv.hpp>
 #include <iomanip>
@@ -22,6 +24,9 @@
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
 {
+    if (!StartupAuth_ShowDialog(hInstance))
+        return 0;
+
     // COM MUST be initialized first - before D3D11, DirectShow, or any DeckLink call.
     // D3D11/DirectShow may initialize COM as COINIT_APARTMENTTHREADED if we're late.
     // DeckLink requires COINIT_MULTITHREADED - calling order is critical.
@@ -56,6 +61,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
     ImGui_ImplDX11_Init(g_pd3dDevice, g_pd3dDeviceContext);
 
     AppState state;
+    CueCommandContext commands;
     Config_Load(state);
     Detection_LoadTemplates(state);
     AddLog("=== Video Analyzer v0.9.2 ===");
@@ -80,6 +86,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
         }
         if (done) break;
 
+        Cue_PollCommand(commands, state);
         VideoSource_Update(sourceCtx, state);
         frame = VideoSource_GrabFrame(sourceCtx, state);
 
@@ -89,14 +96,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
             cv::cvtColor(frame, gray, cv::COLOR_BGR2GRAY);
             cv::resize(gray, resized, cv::Size(WORK_W, WORK_H));
 
-            bool triggered = Detection_ProcessFrame(resized, state);
-            if (triggered)
-            {
-                if (state.cueState == CueState::WIPER_IN)
-                    Viz_SendOff(state);
-                else
-                    Viz_SendOn(state);
-            }
+            Cue_ProcessFrame(commands, state, resized);
 
             if (state.previewEnabled)
             {

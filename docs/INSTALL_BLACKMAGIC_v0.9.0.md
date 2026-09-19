@@ -1,4 +1,4 @@
-# Blackmagic setup for Video Analyzer v1.0.3
+# Blackmagic setup for Video Analyzer v1.0.6
 
 ## Current state
 
@@ -40,13 +40,21 @@ Use one of these targets:
 
 Blackmagic capture should be treated as x64-only.
 
-## Runtime behavior in 1.0.3
+See [Local Windows build](LOCAL_BUILD.md) for prerequisites, build commands,
+and the verification results for this version.
 
-- Blackmagic devices appear in the same device dropdown as webcams
+## Runtime behavior in 1.0.6
+
+- after startup authentication, Blackmagic devices appear in the same device dropdown as webcams
 - capture starts with `1080i50` as the initial mode
 - format detection can reconfigure capture when the incoming signal is detected
 - preview is drawn in the native Win32 preview pane
 - detection runs against the currently active template selected in the main UI
+- failed device opening and empty-device enumeration retry at most every two seconds;
+  selecting another source resets the delay
+- capture callbacks and the UI use synchronized logging
+- renderer commands are sent in the background with a two-second connection/send deadline;
+  an offline renderer does not block the UI or capture loop
 
 ## Current limitations
 
@@ -55,8 +63,8 @@ Blackmagic capture should be treated as x64-only.
 - no embedded audio handling is implemented
 - no deinterlace stage is implemented for interlaced sources
 
-## Recommended next follow-up
+## Hardware verification
 
-The next clean Blackmagic improvement would be exposing a real display-mode
-selector per device, followed by optional deinterlacing before detection and
-preview.
+The SDK bindings and capture formats are unchanged in this release. Local builds
+and automated tests passed, but live DeckLink capture and real Viz output still
+need verification on the target machine with its drivers, hardware, and templates.

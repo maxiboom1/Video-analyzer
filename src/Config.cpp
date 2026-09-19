@@ -67,10 +67,6 @@ void Config_Load(AppState& state)
     state.cameraIndex = IniGetInt("Video", "device_id", state.cameraIndex, ip);
     state.blackmagicDisplayMode = IniGetInt("Video", "blackmagic_display_mode", state.blackmagicDisplayMode, ip);
     state.activeTemplateName = IniGetString("Templates", "active_template", state.activeTemplateName.c_str(), ip);
-    state.activeOcrElementName = IniGetString("OCR", "active_element", state.activeOcrElementName.c_str(), ip);
-    state.ocrEnabled = IniGetInt("OCR", "enabled", state.ocrEnabled ? 1 : 0, ip) != 0;
-    state.ocrDetectThreshold = static_cast<float>(
-        IniGetInt("OCR", "detect_threshold_pct", static_cast<int>(state.ocrDetectThreshold * 100.0f), ip)) / 100.0f;
 
     AddLog(CurrentTimestamp() + " | config.ini loaded from: " + iniPath);
 }
@@ -97,10 +93,6 @@ void Config_Save(const AppState& state)
     WritePrivateProfileStringA("Video", "device_id", std::to_string(state.cameraIndex).c_str(), ip);
     WritePrivateProfileStringA("Video", "blackmagic_display_mode", std::to_string(state.blackmagicDisplayMode).c_str(), ip);
     WritePrivateProfileStringA("Templates", "active_template", state.activeTemplateName.c_str(), ip);
-    WritePrivateProfileStringA("OCR", "active_element", state.activeOcrElementName.c_str(), ip);
-    WritePrivateProfileStringA("OCR", "enabled", state.ocrEnabled ? "1" : "0", ip);
-    WritePrivateProfileStringA("OCR", "detect_threshold_pct",
-        std::to_string(static_cast<int>(state.ocrDetectThreshold * 100.0f)).c_str(), ip);
 
     AddLog(CurrentTimestamp() + " | config.ini saved");
 }

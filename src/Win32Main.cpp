@@ -5,9 +5,10 @@
 
 #include "BlackmagicSource.h"
 #include "Config.h"
+#include "CueCommands.h"
 #include "Detection.h"
 #include "Logger.h"
-#include "Scorebug.h"
+#include "StartupAuth.h"
 #include "UI.h"
 #include "Version.h"
 #include "VideoSource.h"
@@ -26,6 +27,7 @@ namespace
     {
         AppState state;
         VideoSourceContext sourceCtx{};
+        CueCommandContext commands;
     };
 
     const char* DetectionStateToString(DetectionState state)
@@ -89,7 +91,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
         if (!app)
             return -1;
 
-        if (!UI_Create(hWnd, reinterpret_cast<LPCREATESTRUCTA>(lParam)->hInstance, app->state))
+        if (!UI_Create(hWnd, reinterpret_cast<LPCREATESTRUCTA>(lParam)->hInstance, app->state, app->commands))
             return -1;
 
         SetTimer(hWnd, kFrameTimerId, kFrameTimerMs, nullptr);
@@ -136,6 +138,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_TIMER:
         if (wParam == kFrameTimerId && app)
         {
+            Cue_PollCommand(app->commands, app->state);
             VideoSource_Update(app->sourceCtx, app->state);
             cv::Mat frame = VideoSource_GrabFrame(app->sourceCtx, app->state);
             cv::Mat previewFrame;
@@ -147,16 +150,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 cv::cvtColor(frame, gray, cv::COLOR_BGR2GRAY);
                 cv::resize(gray, resized, cv::Size(WORK_W, WORK_H));
 
-                const bool triggered = Detection_ProcessFrame(resized, app->state);
-                if (triggered)
-                {
-                    if (app->state.cueState == CueState::WIPER_IN)
-                        Viz_SendOff(app->state);
-                    else
-                        Viz_SendOn(app->state);
-                }
-
-                Scorebug_ProcessFrame(frame, app->state);
+                Cue_ProcessFrame(app->commands, app->state, resized);
 
                 if (app->state.previewEnabled)
                 {
@@ -181,9 +175,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
         KillTimer(hWnd, kFrameTimerId);
         if (app)
         {
+            app->commands.sender.Stop();
             VideoSource_Release(app->sourceCtx, app->state);
             VideoSource_Shutdown(app->sourceCtx);
-            Scorebug_Shutdown();
         }
         UI_Destroy();
         PostQuitMessage(0);
@@ -195,6 +189,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
 {
+    if (!StartupAuth_ShowDialog(hInstance))
+        return 0;
+
     BlackmagicSource::InitCOM();
 
     INITCOMMONCONTROLSEX icc = {};
@@ -205,13 +202,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
     AppContext app;
     Config_Load(app.state);
     Detection_LoadTemplateCatalog(app.state);
-    Scorebug_LoadLayoutCatalog(app.state);
-    Scorebug_SetActiveLayout(app.state, app.state.activeOcrElementName);
     AddLog(kAppLogBannerA);
     AddLog("Blackmagic support requires Desktop Video / driver version 16 or newer.");
 
     VideoSource_Init(app.sourceCtx);
-    VideoSource_RefreshDeviceList(app.state);
 
     WNDCLASSEXA wc = {};
     wc.cbSize = sizeof(wc);

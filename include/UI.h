@@ -3,7 +3,8 @@
 #include <windows.h>
 #include <opencv2/opencv.hpp>
 
-bool UI_Create(HWND hwnd, HINSTANCE instance, AppState& state);
+struct CueCommandContext;
+bool UI_Create(HWND hwnd, HINSTANCE instance, AppState& state, CueCommandContext& commands);
 void UI_Destroy();
 void UI_OnSize(int width, int height);
 bool UI_HandleMainCommand(WPARAM wParam, LPARAM lParam, AppState& state);

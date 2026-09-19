@@ -5,4 +5,5 @@
 void AddLog(const std::string& text);
 std::string CurrentTimestamp();
 
-extern std::vector<std::string> g_logs;
+std::vector<std::string> Logger_Snapshot();
+void Logger_Clear();

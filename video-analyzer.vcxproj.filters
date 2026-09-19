@@ -21,6 +21,9 @@
     <ClCompile Include="src\Config.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\CueCommands.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="src\Detection.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -30,10 +33,7 @@
     <ClCompile Include="src\Renderer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\Scorebug.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="src\ScorebugDialogs.cpp">
+    <ClCompile Include="src\StartupAuth.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="src\TemplateDialogs.cpp">
@@ -65,6 +65,9 @@
     <ClInclude Include="include\Config.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="include\CueCommands.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="include\Detection.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -74,10 +77,10 @@
     <ClInclude Include="include\Renderer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\Scorebug.h">
+    <ClInclude Include="include\Resources.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\ScorebugDialogs.h">
+    <ClInclude Include="include\StartupAuth.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="include\TemplateDialogs.h">
@@ -98,5 +101,13 @@
     <ClInclude Include="include\VizConnection.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="include\VizSocketOps.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="resources\VideoAnalyzer.rc">
+      <Filter>Resource Files</Filter>
+    </ResourceCompile>
   </ItemGroup>
 </Project>

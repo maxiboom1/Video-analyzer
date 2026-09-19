@@ -103,10 +103,22 @@ void VideoSource_Release(VideoSourceContext& ctx, AppState& state)
     state.frameHeight = 0;
 }
 
-void VideoSource_Update(VideoSourceContext& ctx, AppState& state)
+void VideoSource_Update(VideoSourceContext& ctx, AppState& state, std::chrono::steady_clock::time_point now)
 {
+    if (state.deviceListDirty || ctx.retrySourceKind != state.selectedSourceKind || ctx.retryDeviceId != state.cameraIndex)
+        ctx.nextAttempt = {};
+
+    if (!state.deviceListDirty && state.cameraIndex == state.currentCamera && state.selectedSourceKind == state.currentSourceKind)
+        return;
+    if (now < ctx.nextAttempt)
+        return;
+    ctx.nextAttempt = now + std::chrono::seconds(2);
+
     if (state.deviceListDirty || state.availableDevices.empty())
         VideoSource_RefreshDeviceList(state);
+
+    ctx.retrySourceKind = state.selectedSourceKind;
+    ctx.retryDeviceId = state.cameraIndex;
 
     if (state.cameraIndex == state.currentCamera && state.selectedSourceKind == state.currentSourceKind)
         return;

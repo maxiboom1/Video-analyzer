@@ -11,11 +11,10 @@
 #include <vector>
 
 #include "Config.h"
+#include "CueCommands.h"
 #include "Detection.h"
 #include "Logger.h"
 #include "Renderer.h"
-#include "Scorebug.h"
-#include "ScorebugDialogs.h"
 #include "TemplateDialogs.h"
 #include "Version.h"
 #include "VideoSource.h"
@@ -43,6 +42,7 @@ namespace
         IDC_TEMPLATE_COMBO,
         IDC_RENDERER_STATUS,
         IDC_NEXT_CUE_BUTTON,
+        IDC_SEND_EVENT_COMMAND_BUTTON,
         IDC_CUE_PREVIEW_WINDOW,
         IDC_PREVIEW_CHECK,
         IDC_PREVIEW_WINDOW,
@@ -53,13 +53,10 @@ namespace
         IDC_SETTINGS_TAB_DETECTION,
         IDC_SETTINGS_TAB_ENGINE,
         IDC_SETTINGS_TAB_TEMPLATES,
-        IDC_SETTINGS_TAB_SCOREBUG,
         IDC_DETECTION_ENABLED_CHECK,
         IDC_DETECT_THRESHOLD_SLIDER,
-        IDC_RESET_THRESHOLD_SLIDER,
         IDC_COOLDOWN_SLIDER,
         IDC_DETECT_THRESHOLD_VALUE,
-        IDC_RESET_THRESHOLD_VALUE,
         IDC_COOLDOWN_VALUE,
         IDC_VIZ_IP_EDIT,
         IDC_VIZ_PORT_EDIT,
@@ -72,18 +69,7 @@ namespace
         IDC_TEMPLATE_EDIT_BUTTON,
         IDC_TEMPLATE_DELETE_BUTTON,
         IDC_TEMPLATE_ACTIVATE_BUTTON,
-        IDC_TEMPLATE_DETAILS,
-        IDC_SCOREBUG_ENABLED_CHECK,
-        IDC_SCOREBUG_THRESHOLD_SLIDER,
-        IDC_SCOREBUG_THRESHOLD_VALUE,
-        IDC_SCOREBUGS_LIST,
-        IDC_SCOREBUG_PROPS_LIST,
-        IDC_SCOREBUG_SEPARATOR,
-        IDC_SCOREBUG_NEW_BUTTON,
-        IDC_SCOREBUG_EDIT_BUTTON,
-        IDC_SCOREBUG_DELETE_BUTTON,
-        IDC_SCOREBUG_ACTIVATE_BUTTON,
-        IDC_SCOREBUG_DETAILS
+        IDC_TEMPLATE_DETAILS
     };
 
     struct UIContext
@@ -112,26 +98,24 @@ namespace
         HWND rendererLabel = nullptr;
         HWND rendererStatus = nullptr;
         HWND nextCueButton = nullptr;
+        HWND sendEventCommandButton = nullptr;
         HWND cuePreviewWindow = nullptr;
         HWND previewCheck = nullptr;
         HWND previewWindow = nullptr;
-        HWND ocrStatusLabel = nullptr;
         HWND autoScrollCheck = nullptr;
         HWND clearLogButton = nullptr;
         HWND logEdit = nullptr;
 
         HWND settingsTab = nullptr;
+        HWND settingsTooltip = nullptr;
+        CueCommandContext* commands = nullptr;
         HWND settingsTabDetection = nullptr;
         HWND settingsTabEngine = nullptr;
         HWND settingsTabTemplates = nullptr;
-        HWND settingsTabScorebug = nullptr;
         HWND detectionEnabledCheck = nullptr;
         HWND detectThresholdLabel = nullptr;
         HWND detectThresholdSlider = nullptr;
         HWND detectThresholdValue = nullptr;
-        HWND resetThresholdLabel = nullptr;
-        HWND resetThresholdSlider = nullptr;
-        HWND resetThresholdValue = nullptr;
         HWND cooldownLabel = nullptr;
         HWND cooldownSlider = nullptr;
         HWND cooldownValue = nullptr;
@@ -153,31 +137,14 @@ namespace
         HWND templateDeleteButton = nullptr;
         HWND templateActivateButton = nullptr;
         HWND templateDetails = nullptr;
-        HWND scorebugEnabledCheck = nullptr;
-        HWND scorebugThresholdLabel = nullptr;
-        HWND scorebugThresholdSlider = nullptr;
-        HWND scorebugThresholdValue = nullptr;
-        HWND scorebugPresetsLabel = nullptr;
-        HWND scorebugsList = nullptr;
-        HWND scorebugPropsList = nullptr;
-        HWND scorebugSeparator = nullptr;
-        HWND scorebugNewButton = nullptr;
-        HWND scorebugEditButton = nullptr;
-        HWND scorebugDeleteButton = nullptr;
-        HWND scorebugActivateButton = nullptr;
-        HWND scorebugDetails = nullptr;
 
-        bool lastVizOk = true;
+        VizSendStatus vizStatus = VizSendStatus::NotTested;
         int currentSettingsTab = 0;
         size_t lastLogCount = 0;
         std::string lastLogTail;
         std::string deviceSignature;
         std::string templateSignature;
         std::string templateSelectionName;
-        std::string scorebugSignature;
-        std::string scorebugPropsSignature;
-        std::string scorebugSelectionName;
-        std::string scorebugPropSelectionName;
         std::string cuePreviewSignature;
 
         RECT headerBand{};
@@ -342,24 +309,22 @@ namespace
         SetWindowTextA(hwnd, text);
     }
 
-    void SetWindowTextIfChanged(HWND hwnd, const std::string& text)
+    bool SetWindowTextIfChanged(HWND hwnd, const std::string& text)
     {
         if (!hwnd)
-            return;
+            return false;
         if (GetWindowTextString(hwnd) != text)
+        {
             SetWindowTextA(hwnd, text.c_str());
+            return true;
+        }
+        return false;
     }
 
     void UpdateDetectionSliderLabels()
     {
         SetWindowTextA(g_ui.detectThresholdValue, FormatFloat(SliderToThreshold(g_ui.detectThresholdSlider, 10, 99)).c_str());
-        SetWindowTextA(g_ui.resetThresholdValue, FormatFloat(SliderToThreshold(g_ui.resetThresholdSlider, 5, 95)).c_str());
         SetWindowTextA(g_ui.cooldownValue, std::to_string(SliderToInt(g_ui.cooldownSlider, 100, 10000)).c_str());
-    }
-
-    void UpdateScorebugSliderLabel()
-    {
-        SetWindowTextA(g_ui.scorebugThresholdValue, FormatFloat(SliderToThreshold(g_ui.scorebugThresholdSlider, 10, 99)).c_str());
     }
 
     std::string BuildDeviceSignature(const AppState& state)
@@ -415,21 +380,6 @@ namespace
                 << manifest.inImagePath << "|"
                 << manifest.outImagePath << "|";
         }
-        return oss.str();
-    }
-
-    std::string BuildMainOcrStatusText(const AppState& state)
-    {
-        if (!state.ocrEnabled)
-            return "[OCR Disabled]";
-
-        if (!state.ocrOnAir)
-            return "[OCR] Element not detected";
-
-        std::ostringstream oss;
-        oss << "[OCR] " << (state.lastOcrState.elementName.empty() ? state.activeOcrElementName : state.lastOcrState.elementName);
-        for (const auto& prop : state.lastOcrState.props)
-            oss << " || " << prop.name << ": " << (prop.valid && !prop.value.empty() ? prop.value : "-");
         return oss.str();
     }
 
@@ -562,142 +512,12 @@ namespace
         UpdateTemplateDetails(state);
     }
 
-    std::string BuildScorebugSignature(const AppState& state)
-    {
-        std::ostringstream oss;
-        oss << state.activeOcrElementName << "|" << state.ocrEnabled << "|"
-            << static_cast<int>(state.ocrDetectThreshold * 1000.0f) << "|"
-            << state.ocrElements.size() << "|";
-        for (const auto& element : state.ocrElements)
-            oss << element.name << "|" << element.updatedAt << "|" << element.referenceImagePath << "|" << element.props.size() << "|";
-        return oss.str();
-    }
-
-    std::string GetSelectedScorebugNameFromList()
-    {
-        const int selection = static_cast<int>(SendMessageA(g_ui.scorebugsList, LB_GETCURSEL, 0, 0));
-        if (selection == LB_ERR || !g_ui.state)
-            return {};
-        if (selection < 0 || selection >= static_cast<int>(g_ui.state->ocrElements.size()))
-            return {};
-        return g_ui.state->ocrElements[selection].name;
-    }
-
-    std::string GetSelectedScorebugPropNameFromList()
-    {
-        const int selection = static_cast<int>(SendMessageA(g_ui.scorebugPropsList, LB_GETCURSEL, 0, 0));
-        if (selection == LB_ERR)
-            return {};
-
-        std::string elementName = GetSelectedScorebugNameFromList();
-        if (elementName.empty() || !g_ui.state)
-            return {};
-        const OcrElementManifest* element = Scorebug_FindLayoutByName(*g_ui.state, elementName);
-        if (!element || selection < 0 || selection >= static_cast<int>(element->props.size()))
-            return {};
-        return element->props[selection].name;
-    }
-
-    std::string BuildScorebugPropsSignature(const AppState& state, const std::string& elementName)
-    {
-        std::ostringstream oss;
-        oss << elementName << "|";
-        if (const OcrElementManifest* element = Scorebug_FindLayoutByName(state, elementName))
-        {
-            oss << element->updatedAt << "|" << element->props.size() << "|";
-            for (const auto& prop : element->props)
-                oss << prop.name << "|" << static_cast<int>(prop.type) << "|";
-        }
-        return oss.str();
-    }
-
-    void UpdateScorebugControls(const AppState& state)
-    {
-        const std::string signature = BuildScorebugSignature(state);
-        if (signature != g_ui.scorebugSignature)
-        {
-            const std::string liveSelectedName = GetSelectedScorebugNameFromList();
-            SendMessageA(g_ui.scorebugsList, LB_RESETCONTENT, 0, 0);
-            if (state.ocrElements.empty())
-            {
-                g_ui.scorebugSelectionName.clear();
-            }
-            else
-            {
-                std::string selectedName = !liveSelectedName.empty()
-                    ? liveSelectedName
-                    : (g_ui.scorebugSelectionName.empty() ? state.activeOcrElementName : g_ui.scorebugSelectionName);
-                int selectedIndex = LB_ERR;
-                for (size_t i = 0; i < state.ocrElements.size(); ++i)
-                {
-                    const char* name = state.ocrElements[i].name.c_str();
-                    SendMessageA(g_ui.scorebugsList, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(name));
-                    if (state.ocrElements[i].name == selectedName)
-                        selectedIndex = static_cast<int>(i);
-                }
-                if (selectedIndex == LB_ERR)
-                    selectedIndex = 0;
-                SendMessageA(g_ui.scorebugsList, LB_SETCURSEL, selectedIndex, 0);
-                g_ui.scorebugSelectionName = state.ocrElements[static_cast<size_t>(selectedIndex)].name;
-            }
-
-            SetCheckState(g_ui.scorebugEnabledCheck, state.ocrEnabled);
-            g_ui.scorebugSignature = signature;
-        }
-
-        const OcrElementManifest* element = Scorebug_FindLayoutByName(state, g_ui.scorebugSelectionName);
-        const std::string propsSignature = BuildScorebugPropsSignature(state, g_ui.scorebugSelectionName);
-        if (propsSignature != g_ui.scorebugPropsSignature)
-        {
-            const std::string liveSelectedPropName = GetSelectedScorebugPropNameFromList();
-            SendMessageA(g_ui.scorebugPropsList, LB_RESETCONTENT, 0, 0);
-            if (element)
-            {
-                std::string selectedPropName = !liveSelectedPropName.empty()
-                    ? liveSelectedPropName
-                    : g_ui.scorebugPropSelectionName;
-                int selectedPropIndex = LB_ERR;
-                for (size_t i = 0; i < element->props.size(); ++i)
-                {
-                    const char* name = element->props[i].name.c_str();
-                    SendMessageA(g_ui.scorebugPropsList, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(name));
-                    if (element->props[i].name == selectedPropName)
-                        selectedPropIndex = static_cast<int>(i);
-                }
-                if (selectedPropIndex == LB_ERR && !element->props.empty())
-                    selectedPropIndex = 0;
-                SendMessageA(g_ui.scorebugPropsList, LB_SETCURSEL, selectedPropIndex, 0);
-                g_ui.scorebugPropSelectionName = (selectedPropIndex != LB_ERR) ? element->props[static_cast<size_t>(selectedPropIndex)].name : std::string();
-            }
-            else
-            {
-                g_ui.scorebugPropSelectionName.clear();
-            }
-            g_ui.scorebugPropsSignature = propsSignature;
-        }
-
-        EnableWindow(g_ui.scorebugNewButton, TRUE);
-        EnableWindow(g_ui.scorebugDeleteButton, element != nullptr);
-        EnableWindow(g_ui.scorebugEditButton, element != nullptr && element->props.size() < 12);
-        EnableWindow(g_ui.scorebugActivateButton, !GetSelectedScorebugPropNameFromList().empty());
-    }
-
     TemplateManifest DraftToManifest(const TemplateDraft& draft)
     {
         TemplateManifest manifest;
         manifest.name = draft.templateName;
         manifest.inRoi = draft.inRoi;
         manifest.outRoi = draft.outRoi;
-        return manifest;
-    }
-
-    OcrElementManifest DraftToScorebugManifest(const OcrElementDraft& draft, const OcrElementManifest* existing)
-    {
-        OcrElementManifest manifest;
-        manifest.name = draft.name;
-        manifest.frameRoi = draft.frameRoi;
-        if (existing)
-            manifest.props = existing->props;
         return manifest;
     }
 
@@ -716,11 +536,7 @@ namespace
     void SyncSettingsFromState(const AppState& state)
     {
         SetCheckState(g_ui.detectionEnabledCheck, state.detectionEnabled);
-        SetCheckState(g_ui.scorebugEnabledCheck, state.ocrEnabled);
-        SendMessageA(g_ui.scorebugThresholdSlider, TBM_SETPOS, TRUE, ThresholdToSlider(state.ocrDetectThreshold, 10, 99));
-        UpdateScorebugSliderLabel();
         SendMessageA(g_ui.detectThresholdSlider, TBM_SETPOS, TRUE, ThresholdToSlider(state.detectThreshold, 10, 99));
-        SendMessageA(g_ui.resetThresholdSlider, TBM_SETPOS, TRUE, ThresholdToSlider(state.resetThreshold, 5, 95));
         SendMessageA(g_ui.cooldownSlider, TBM_SETPOS, TRUE, ClampInt(state.cooldownMs, 100, 10000));
         UpdateDetectionSliderLabels();
         SetEditText(g_ui.vizIpEdit, state.vizIp);
@@ -731,18 +547,18 @@ namespace
 
     void SaveSettingsToState(AppState& state)
     {
+        const std::string oldIp = state.vizIp;
+        const int oldPort = state.vizPort;
         state.detectionEnabled = GetCheckState(g_ui.detectionEnabledCheck);
-        state.ocrEnabled = GetCheckState(g_ui.scorebugEnabledCheck);
-        state.ocrDetectThreshold = SliderToThreshold(g_ui.scorebugThresholdSlider, 10, 99);
-        state.activeOcrElementName = GetSelectedScorebugNameFromList();
         state.detectThreshold = SliderToThreshold(g_ui.detectThresholdSlider, 10, 99);
-        state.resetThreshold = SliderToThreshold(g_ui.resetThresholdSlider, 5, 95);
         state.cooldownMs = SliderToInt(g_ui.cooldownSlider, 100, 10000);
         state.vizPort = ParseIntOrDefault(g_ui.vizPortEdit, state.vizPort, 1, 65535);
 
         strncpy_s(state.vizIp, GetWindowTextString(g_ui.vizIpEdit).c_str(), _TRUNCATE);
         strncpy_s(state.cmdOn, GetWindowTextString(g_ui.cmdOnEdit).c_str(), _TRUNCATE);
         strncpy_s(state.cmdOff, GetWindowTextString(g_ui.cmdOffEdit).c_str(), _TRUNCATE);
+        if (oldIp != state.vizIp || oldPort != state.vizPort)
+            Cue_ResetRendererStatus(state);
     }
 
     bool RunTemplateEditor(AppState& state, const TemplateManifest* existing, const std::string& originalName)
@@ -772,63 +588,6 @@ namespace
         g_ui.templateSignature.clear();
         g_ui.templateSelectionName = manifest.name;
         SaveConfigAndRefresh(state);
-        return true;
-    }
-
-    bool RunScorebugEditor(AppState& state, const OcrElementManifest* existing, const std::string& originalName)
-    {
-        OcrElementDraft draft;
-        std::string error;
-        if (!ScorebugDialogs_ShowElementEditor(g_ui.settingsWindow, g_ui.instance, existing, draft, error))
-        {
-            if (!error.empty())
-                ShowSettingsError(g_ui.settingsWindow, error);
-            return false;
-        }
-
-        OcrElementManifest manifest = DraftToScorebugManifest(draft, existing);
-        if (!Scorebug_SaveLayout(state, manifest, draft.referenceImagePath, originalName, error))
-        {
-            ShowSettingsError(g_ui.settingsWindow, error);
-            return false;
-        }
-
-        g_ui.scorebugSignature.clear();
-        g_ui.scorebugPropsSignature.clear();
-        g_ui.scorebugSelectionName = manifest.name;
-        g_ui.scorebugPropSelectionName.clear();
-        UI_SyncState(state);
-        SyncSettingsFromState(state);
-        return true;
-    }
-
-    bool RunScorebugPropEditor(AppState& state, const OcrElementManifest& element, const OcrPropManifest* existing, const std::string& originalName)
-    {
-        OcrPropDraft draft;
-        std::string error;
-        if (!ScorebugDialogs_ShowPropEditor(g_ui.settingsWindow, g_ui.instance, element, existing, draft, error))
-        {
-            if (!error.empty())
-                ShowSettingsError(g_ui.settingsWindow, error);
-            return false;
-        }
-
-        OcrPropManifest prop;
-        prop.name = draft.name;
-        prop.roi = draft.roi;
-        prop.type = draft.type;
-        if (!Scorebug_SaveProp(state, element.name, prop, originalName, error))
-        {
-            ShowSettingsError(g_ui.settingsWindow, error);
-            return false;
-        }
-
-        g_ui.scorebugSignature.clear();
-        g_ui.scorebugPropsSignature.clear();
-        g_ui.scorebugSelectionName = element.name;
-        g_ui.scorebugPropSelectionName = prop.name;
-        UI_SyncState(state);
-        SyncSettingsFromState(state);
         return true;
     }
 
@@ -863,61 +622,10 @@ namespace
         SaveConfigAndRefresh(state);
     }
 
-    void DeleteSelectedScorebug(AppState& state)
-    {
-        const std::string selectedName = GetSelectedScorebugNameFromList();
-        if (selectedName.empty())
-            return;
-
-        std::string prompt = "Delete OCR element '" + selectedName + "'?";
-        if (MessageBoxA(g_ui.settingsWindow, prompt.c_str(), "Delete OCR Element", MB_OKCANCEL | MB_ICONWARNING) != IDOK)
-            return;
-        std::string error;
-        if (!Scorebug_DeleteLayout(state, selectedName, error))
-        {
-            ShowSettingsError(g_ui.settingsWindow, error);
-            return;
-        }
-
-        g_ui.scorebugSignature.clear();
-        g_ui.scorebugPropsSignature.clear();
-        g_ui.scorebugSelectionName.clear();
-        g_ui.scorebugPropSelectionName.clear();
-        UI_SyncState(state);
-        SyncSettingsFromState(state);
-    }
-
-    void DeleteSelectedScorebugProp(AppState& state)
-    {
-        const std::string elementName = GetSelectedScorebugNameFromList();
-        const std::string propName = GetSelectedScorebugPropNameFromList();
-        if (elementName.empty() || propName.empty())
-            return;
-
-        std::string prompt = "Delete OCR property '" + propName + "'?";
-        if (MessageBoxA(g_ui.settingsWindow, prompt.c_str(), "Delete OCR Property", MB_OKCANCEL | MB_ICONWARNING) != IDOK)
-            return;
-
-        std::string error;
-        if (!Scorebug_DeleteProp(state, elementName, propName, error))
-        {
-            ShowSettingsError(g_ui.settingsWindow, error);
-            return;
-        }
-
-        g_ui.scorebugSignature.clear();
-        g_ui.scorebugPropsSignature.clear();
-        g_ui.scorebugSelectionName = elementName;
-        g_ui.scorebugPropSelectionName.clear();
-        UI_SyncState(state);
-        SyncSettingsFromState(state);
-    }
-
     void ShowSettingsWindow(const AppState& state)
     {
         SyncSettingsFromState(state);
         UpdateTemplateControls(state);
-        UpdateScorebugControls(state);
 
         RECT mainRect{};
         GetWindowRect(g_ui.mainWindow, &mainRect);
@@ -935,38 +643,53 @@ namespace
 
     void UpdateRendererStatus(const AppState& state)
     {
+        std::string result = "Not tested";
+        switch (state.vizStatus)
+        {
+        case VizSendStatus::Sending: result = "Sending..."; break;
+        case VizSendStatus::Succeeded: result = "Last send succeeded"; break;
+        case VizSendStatus::Failed: result = "Last send failed: " + state.lastVizMsg; break;
+        default: break;
+        }
+        g_ui.vizStatus = state.vizStatus;
         std::ostringstream statusText;
         statusText << state.vizIp << ":" << state.vizPort << " ["
-                   << (state.lastVizOk ? "Connected" : state.lastVizMsg) << "]";
+                   << result << "]";
         SetWindowTextIfChanged(g_ui.rendererStatus, statusText.str());
 
         std::ostringstream settingsText;
         settingsText << "Status: " << state.vizIp << ":" << state.vizPort << " ["
-                     << (state.lastVizOk ? "OK" : state.lastVizMsg) << "]";
+                     << result << "]";
         SetWindowTextIfChanged(g_ui.settingsStatus, settingsText.str());
 
-        g_ui.lastVizOk = state.lastVizOk;
     }
 
     void UpdateNextCueButton(const AppState& state)
     {
-        SetWindowTextIfChanged(
+        EnableWindow(g_ui.nextCueButton, !state.vizSendPending);
+        EnableWindow(g_ui.sendEventCommandButton, !state.vizSendPending);
+        if (SetWindowTextIfChanged(
             g_ui.nextCueButton,
-            state.cueState == CueState::WIPER_IN ? "NEXT CUE\nWIPER IN" : "NEXT CUE\nWIPER OUT");
+            state.cueState == CueState::WIPER_IN ? "NEXT CUE\nWIPER IN" : "NEXT CUE\nWIPER OUT"))
+        {
+            if (g_ui.sendEventCommandButton)
+                InvalidateRect(g_ui.sendEventCommandButton, nullptr, FALSE);
+        }
     }
 
     void UpdateLogView(const AppState& state)
     {
-        const size_t logCount = g_logs.size();
-        const std::string tail = logCount > 0 ? g_logs.back() : std::string();
+        const auto logs = Logger_Snapshot();
+        const size_t logCount = logs.size();
+        const std::string tail = logCount > 0 ? logs.back() : std::string();
         if (logCount == g_ui.lastLogCount && tail == g_ui.lastLogTail)
             return;
 
         std::string joined;
-        for (size_t i = 0; i < g_logs.size(); ++i)
+        for (size_t i = 0; i < logs.size(); ++i)
         {
-            joined += g_logs[i];
-            if (i + 1 < g_logs.size())
+            joined += logs[i];
+            if (i + 1 < logs.size())
                 joined += "\r\n";
         }
 
@@ -1028,9 +751,11 @@ namespace
         const int cueTop = controlTop + 88;
         const int cueHeight = 96;
         const int cueButtonSize = cueHeight;
-        const int cuePreviewLeft = contentLeft + 20 + cueButtonSize + 12;
-        const int cuePreviewWidth = std::max(120, contentWidth - 52 - cueButtonSize - 12);
+        const int sendButtonLeft = contentLeft + 20 + cueButtonSize + 12;
+        const int cuePreviewLeft = sendButtonLeft + cueButtonSize + 12;
+        const int cuePreviewWidth = std::max(0, width - kMargin - 20 - cuePreviewLeft);
         MoveWindow(g_ui.nextCueButton, contentLeft + 20, cueTop, cueButtonSize, cueHeight, TRUE);
+        MoveWindow(g_ui.sendEventCommandButton, sendButtonLeft, cueTop, cueButtonSize, cueHeight, TRUE);
         MoveWindow(g_ui.cuePreviewWindow, cuePreviewLeft, cueTop, cuePreviewWidth, cueHeight, TRUE);
 
         const int previewTop = controlTop + 214;
@@ -1044,9 +769,7 @@ namespace
 
         MoveWindow(g_ui.previewCheck, contentLeft + 20, previewTop + 14, 140, 24, TRUE);
         const int previewWindowTop = previewTop + 48;
-        const int previewStatusTop = previewTop + previewSectionHeight - 30;
-        MoveWindow(g_ui.previewWindow, contentLeft + 20, previewWindowTop, contentWidth - 40, std::max(80, previewStatusTop - previewWindowTop - 8), TRUE);
-        MoveWindow(g_ui.ocrStatusLabel, contentLeft + 20, previewStatusTop, contentWidth - 40, 18, TRUE);
+        MoveWindow(g_ui.previewWindow, contentLeft + 20, previewWindowTop, contentWidth - 40, std::max(80, previewSectionHeight - 68), TRUE);
 
         MoveWindow(g_ui.autoScrollCheck, contentLeft + 20, logTop + 14, 140, 24, TRUE);
         MoveWindow(g_ui.clearLogButton, width - kMargin - 112, logTop + 10, 92, 32, TRUE);
@@ -1059,20 +782,21 @@ namespace
 
     void ShowSettingsTab(int tabIndex)
     {
+        if (g_ui.settingsTooltip)
+        {
+            SendMessageW(g_ui.settingsTooltip, TTM_POP, 0, 0);
+            SendMessageW(g_ui.settingsTooltip, TTM_ACTIVATE, tabIndex == 0, 0);
+        }
         g_ui.currentSettingsTab = tabIndex;
         const bool detectionTab = (tabIndex == 0);
         const bool engineTab = (tabIndex == 1);
         const bool templatesTab = (tabIndex == 2);
-        const bool scorebugTab = (tabIndex == 3);
 
         const HWND detectionControls[] = {
             g_ui.detectionEnabledCheck,
             g_ui.detectThresholdLabel,
             g_ui.detectThresholdSlider,
             g_ui.detectThresholdValue,
-            g_ui.resetThresholdLabel,
-            g_ui.resetThresholdSlider,
-            g_ui.resetThresholdValue,
             g_ui.cooldownLabel,
             g_ui.cooldownSlider,
             g_ui.cooldownValue
@@ -1097,20 +821,6 @@ namespace
             g_ui.templateActivateButton,
             g_ui.templateDetails
         };
-        const HWND scorebugControls[] = {
-            g_ui.scorebugEnabledCheck,
-            g_ui.scorebugThresholdLabel,
-            g_ui.scorebugThresholdSlider,
-            g_ui.scorebugThresholdValue,
-            g_ui.scorebugPresetsLabel,
-            g_ui.scorebugsList,
-            g_ui.scorebugPropsList,
-            g_ui.scorebugNewButton,
-            g_ui.scorebugEditButton,
-            g_ui.scorebugDeleteButton,
-            g_ui.scorebugActivateButton,
-            g_ui.scorebugDetails
-        };
 
         for (HWND hwnd : detectionControls)
             ShowWindow(hwnd, detectionTab ? SW_SHOW : SW_HIDE);
@@ -1118,18 +828,12 @@ namespace
             ShowWindow(hwnd, engineTab ? SW_SHOW : SW_HIDE);
         for (HWND hwnd : templatesControls)
             ShowWindow(hwnd, templatesTab ? SW_SHOW : SW_HIDE);
-        for (HWND hwnd : scorebugControls)
-            ShowWindow(hwnd, scorebugTab ? SW_SHOW : SW_HIDE);
-        if (g_ui.scorebugSeparator)
-            ShowWindow(g_ui.scorebugSeparator, SW_HIDE);
         if (g_ui.settingsTabDetection)
             InvalidateRect(g_ui.settingsTabDetection, nullptr, TRUE);
         if (g_ui.settingsTabEngine)
             InvalidateRect(g_ui.settingsTabEngine, nullptr, TRUE);
         if (g_ui.settingsTabTemplates)
             InvalidateRect(g_ui.settingsTabTemplates, nullptr, TRUE);
-        if (g_ui.settingsTabScorebug)
-            InvalidateRect(g_ui.settingsTabScorebug, nullptr, TRUE);
     }
 
     void LayoutSettingsWindow(int width, int height)
@@ -1141,7 +845,6 @@ namespace
         MoveWindow(g_ui.settingsTabDetection, tabsLeft, tabsTop, tabWidth, tabHeight, TRUE);
         MoveWindow(g_ui.settingsTabEngine, tabsLeft + tabWidth + 6, tabsTop, tabWidth, tabHeight, TRUE);
         MoveWindow(g_ui.settingsTabTemplates, tabsLeft + (tabWidth + 6) * 2, tabsTop, tabWidth + 10, tabHeight, TRUE);
-        MoveWindow(g_ui.settingsTabScorebug, tabsLeft + (tabWidth + 6) * 3 + 10, tabsTop, tabWidth + 8, tabHeight, TRUE);
 
         RECT panelRect{ kMargin, tabsTop + tabHeight + 8, width - kMargin, std::max(tabsTop + tabHeight + 120, height - 58) };
         g_ui.settingsPanel = panelRect;
@@ -1155,12 +858,9 @@ namespace
         MoveWindow(g_ui.detectThresholdLabel, left, panelRect.top + 48, labelW, 20, TRUE);
         MoveWindow(g_ui.detectThresholdSlider, fieldLeft, panelRect.top + 42, fieldW, 28, TRUE);
         MoveWindow(g_ui.detectThresholdValue, fieldLeft + fieldW + 10, panelRect.top + 46, valueW, 22, TRUE);
-        MoveWindow(g_ui.resetThresholdLabel, left, panelRect.top + 84, labelW, 20, TRUE);
-        MoveWindow(g_ui.resetThresholdSlider, fieldLeft, panelRect.top + 78, fieldW, 28, TRUE);
-        MoveWindow(g_ui.resetThresholdValue, fieldLeft + fieldW + 10, panelRect.top + 82, valueW, 22, TRUE);
-        MoveWindow(g_ui.cooldownLabel, left, panelRect.top + 120, labelW, 20, TRUE);
-        MoveWindow(g_ui.cooldownSlider, fieldLeft, panelRect.top + 114, fieldW, 28, TRUE);
-        MoveWindow(g_ui.cooldownValue, fieldLeft + fieldW + 10, panelRect.top + 118, valueW, 22, TRUE);
+        MoveWindow(g_ui.cooldownLabel, left, panelRect.top + 84, labelW, 20, TRUE);
+        MoveWindow(g_ui.cooldownSlider, fieldLeft, panelRect.top + 78, fieldW, 28, TRUE);
+        MoveWindow(g_ui.cooldownValue, fieldLeft + fieldW + 10, panelRect.top + 82, valueW, 22, TRUE);
 
         MoveWindow(g_ui.vizIpLabel, left, panelRect.top + 12, labelW, 20, TRUE);
         MoveWindow(g_ui.vizIpEdit, fieldLeft, panelRect.top + 8, 220, 24, TRUE);
@@ -1192,39 +892,44 @@ namespace
         MoveWindow(g_ui.templateDeleteButton, left + (buttonWidth + buttonGap) * 2, buttonTop, buttonWidth, buttonHeight, TRUE);
         MoveWindow(g_ui.templateActivateButton, left + (buttonWidth + buttonGap) * 3, buttonTop, activateWidth, buttonHeight, TRUE);
 
-        const int topBandTop = panelRect.top + 12;
-        MoveWindow(g_ui.scorebugEnabledCheck, left, topBandTop, 140, 24, TRUE);
-        MoveWindow(g_ui.scorebugThresholdLabel, left + 170, topBandTop + 2, 122, 20, TRUE);
-        MoveWindow(
-            g_ui.scorebugThresholdSlider,
-            left + 298,
-            topBandTop - 4,
-            std::max(140, static_cast<int>(panelRect.right) - (left + 370) - 16),
-            28,
-            TRUE);
-        MoveWindow(g_ui.scorebugThresholdValue, panelRect.right - 70, topBandTop + 2, 54, 22, TRUE);
-        MoveWindow(g_ui.scorebugSeparator, left, panelRect.top + 46, panelWidth - 32, 10, TRUE);
-
-        const int ocrContentTop = panelRect.top + 64;
-        const int ocrButtonTop = panelRect.bottom - 46;
-        const int ocrListHeight = std::max(140, ocrButtonTop - ocrContentTop - 36);
-        const int paneGap = 18;
-        const int ocrListWidth = std::max(180, (panelWidth - 32 - paneGap) / 2);
-        const int rightPaneLeft = left + ocrListWidth + paneGap;
-        const int rightPaneWidth = std::max(180, static_cast<int>(panelRect.right) - rightPaneLeft - 16);
-
-        MoveWindow(g_ui.scorebugPresetsLabel, left, ocrContentTop, ocrListWidth, 20, TRUE);
-        MoveWindow(g_ui.scorebugDetails, rightPaneLeft, ocrContentTop, rightPaneWidth, 20, TRUE);
-        MoveWindow(g_ui.scorebugsList, left, ocrContentTop + 28, ocrListWidth, ocrListHeight, TRUE);
-        MoveWindow(g_ui.scorebugPropsList, rightPaneLeft, ocrContentTop + 28, rightPaneWidth, ocrListHeight, TRUE);
-
-        MoveWindow(g_ui.scorebugNewButton, left, ocrButtonTop, buttonWidth, 30, TRUE);
-        MoveWindow(g_ui.scorebugDeleteButton, left + buttonWidth + buttonGap, ocrButtonTop, buttonWidth, 30, TRUE);
-        MoveWindow(g_ui.scorebugEditButton, rightPaneLeft, ocrButtonTop, buttonWidth, 30, TRUE);
-        MoveWindow(g_ui.scorebugActivateButton, rightPaneLeft + buttonWidth + buttonGap, ocrButtonTop, buttonWidth, 30, TRUE);
         MoveWindow(g_ui.saveButton, width - kMargin - 120, height - kMargin - 30, 120, 30, TRUE);
 
         InvalidateRect(g_ui.settingsWindow, nullptr, TRUE);
+    }
+
+    void AddSettingsTooltip(HWND control, const wchar_t* text)
+    {
+        wchar_t className[32]{};
+        GetClassNameW(control, className, static_cast<int>(std::size(className)));
+        if (lstrcmpiW(className, L"STATIC") == 0)
+            SetWindowLongPtrW(control, GWL_STYLE, GetWindowLongPtrW(control, GWL_STYLE) | SS_NOTIFY);
+        TOOLINFOW tool{};
+        // Compatible with the system common-controls version as well as v6.
+        tool.cbSize = TTTOOLINFOW_V2_SIZE;
+        tool.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
+        tool.hwnd = g_ui.settingsWindow;
+        tool.uId = reinterpret_cast<UINT_PTR>(control);
+        tool.lpszText = const_cast<wchar_t*>(text);
+        SendMessageW(g_ui.settingsTooltip, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&tool));
+    }
+
+    void CreateDetectionTooltips()
+    {
+        g_ui.settingsTooltip = CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, nullptr,
+            WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX, CW_USEDEFAULT, CW_USEDEFAULT,
+            CW_USEDEFAULT, CW_USEDEFAULT, g_ui.settingsWindow, nullptr, g_ui.instance, nullptr);
+        SendMessageW(g_ui.settingsTooltip, TTM_SETMAXTIPWIDTH, 0, 420);
+        SendMessageW(g_ui.settingsTooltip, TTM_SETDELAYTIME, TTDT_INITIAL, 500);
+        SendMessageW(g_ui.settingsTooltip, TTM_SETDELAYTIME, TTDT_AUTOPOP, 30000);
+        const wchar_t* enabled = L"Automatically detect the next cue in the video and send its command. Turn this off to stop automatic events. Manual cue buttons remain available. Click Save Config to apply changes.";
+        const wchar_t* detect = L"Minimum match score needed to detect the next cue. Higher values require a closer match and may miss events. Lower values are more sensitive and may cause false triggers. Click Save Config to apply changes.";
+        const wchar_t* cooldown = L"Minimum wait before another automatic detection after a detected event or successful manual event command. 1000 ms equals 1 second. Longer waits reduce repeated triggers but can miss closely spaced events. Click Save Config to apply changes.";
+        AddSettingsTooltip(g_ui.detectionEnabledCheck, enabled);
+        for (HWND control : { g_ui.detectThresholdLabel, g_ui.detectThresholdSlider, g_ui.detectThresholdValue })
+            AddSettingsTooltip(control, detect);
+        for (HWND control : { g_ui.cooldownLabel, g_ui.cooldownSlider, g_ui.cooldownValue })
+            AddSettingsTooltip(control, cooldown);
+        AddSettingsTooltip(g_ui.saveButton, L"Apply the changes made in this settings window.");
     }
 
     void CreateSettingsWindowControls()
@@ -1232,7 +937,6 @@ namespace
         g_ui.settingsTabDetection = CreateButtonA("Detection", IDC_SETTINGS_TAB_DETECTION, g_ui.settingsWindow, true);
         g_ui.settingsTabEngine = CreateButtonA("Engine", IDC_SETTINGS_TAB_ENGINE, g_ui.settingsWindow, true);
         g_ui.settingsTabTemplates = CreateButtonA("Templates", IDC_SETTINGS_TAB_TEMPLATES, g_ui.settingsWindow, true);
-        g_ui.settingsTabScorebug = CreateButtonA("OCR", IDC_SETTINGS_TAB_SCOREBUG, g_ui.settingsWindow, true);
 
         g_ui.detectionEnabledCheck = CreateControlA(0, "BUTTON", "Detection enabled", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, IDC_DETECTION_ENABLED_CHECK, g_ui.settingsWindow);
         g_ui.detectThresholdLabel = CreateControlA(0, "STATIC", "Detect Threshold", WS_CHILD | WS_VISIBLE, 0, g_ui.settingsWindow);
@@ -1247,18 +951,6 @@ namespace
             g_ui.instance,
             nullptr);
         g_ui.detectThresholdValue = CreateControlA(0, "STATIC", "", WS_CHILD | WS_VISIBLE | SS_RIGHT, IDC_DETECT_THRESHOLD_VALUE, g_ui.settingsWindow);
-        g_ui.resetThresholdLabel = CreateControlA(0, "STATIC", "Reset Threshold", WS_CHILD | WS_VISIBLE, 0, g_ui.settingsWindow);
-        g_ui.resetThresholdSlider = CreateWindowExA(
-            0,
-            TRACKBAR_CLASSA,
-            "",
-            WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_NOTICKS | WS_TABSTOP,
-            0, 0, 0, 0,
-            g_ui.settingsWindow,
-            reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_RESET_THRESHOLD_SLIDER)),
-            g_ui.instance,
-            nullptr);
-        g_ui.resetThresholdValue = CreateControlA(0, "STATIC", "", WS_CHILD | WS_VISIBLE | SS_RIGHT, IDC_RESET_THRESHOLD_VALUE, g_ui.settingsWindow);
         g_ui.cooldownLabel = CreateControlA(0, "STATIC", "Cooldown (ms)", WS_CHILD | WS_VISIBLE, 0, g_ui.settingsWindow);
         g_ui.cooldownSlider = CreateWindowExA(
             0,
@@ -1301,51 +993,9 @@ namespace
             WS_CHILD | WS_VISIBLE,
             IDC_TEMPLATE_DETAILS,
             g_ui.settingsWindow);
-        g_ui.scorebugEnabledCheck = CreateControlA(0, "BUTTON", "Enable OCR", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, IDC_SCOREBUG_ENABLED_CHECK, g_ui.settingsWindow);
-        g_ui.scorebugThresholdLabel = CreateControlA(0, "STATIC", "Detect Threshold", WS_CHILD | WS_VISIBLE, 0, g_ui.settingsWindow);
-        g_ui.scorebugThresholdSlider = CreateWindowExA(
-            0,
-            TRACKBAR_CLASSA,
-            "",
-            WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_NOTICKS | WS_TABSTOP,
-            0, 0, 0, 0,
-            g_ui.settingsWindow,
-            reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_SCOREBUG_THRESHOLD_SLIDER)),
-            g_ui.instance,
-            nullptr);
-        g_ui.scorebugThresholdValue = CreateControlA(0, "STATIC", "", WS_CHILD | WS_VISIBLE | SS_RIGHT, IDC_SCOREBUG_THRESHOLD_VALUE, g_ui.settingsWindow);
-        g_ui.scorebugPresetsLabel = CreateControlA(0, "STATIC", "GFX Element List", WS_CHILD | WS_VISIBLE, 0, g_ui.settingsWindow);
-        g_ui.scorebugSeparator = CreateControlA(0, "STATIC", "", WS_CHILD | WS_VISIBLE | SS_ETCHEDHORZ, IDC_SCOREBUG_SEPARATOR, g_ui.settingsWindow);
-        g_ui.scorebugsList = CreateControlA(
-            WS_EX_CLIENTEDGE,
-            "LISTBOX",
-            "",
-            WS_CHILD | WS_VISIBLE | WS_VSCROLL | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT,
-            IDC_SCOREBUGS_LIST,
-            g_ui.settingsWindow);
-        g_ui.scorebugPropsList = CreateControlA(
-            WS_EX_CLIENTEDGE,
-            "LISTBOX",
-            "",
-            WS_CHILD | WS_VISIBLE | WS_VSCROLL | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT,
-            IDC_SCOREBUG_PROPS_LIST,
-            g_ui.settingsWindow);
-        g_ui.scorebugNewButton = CreateButtonA("New", IDC_SCOREBUG_NEW_BUTTON, g_ui.settingsWindow, true);
-        g_ui.scorebugEditButton = CreateButtonA("New", IDC_SCOREBUG_EDIT_BUTTON, g_ui.settingsWindow, true);
-        g_ui.scorebugDeleteButton = CreateButtonA("Delete", IDC_SCOREBUG_DELETE_BUTTON, g_ui.settingsWindow, true);
-        g_ui.scorebugActivateButton = CreateButtonA("Delete", IDC_SCOREBUG_ACTIVATE_BUTTON, g_ui.settingsWindow, true);
-        g_ui.scorebugDetails = CreateControlA(
-            0,
-            "STATIC",
-            "GFX Properties",
-            WS_CHILD | WS_VISIBLE,
-            IDC_SCOREBUG_DETAILS,
-            g_ui.settingsWindow);
 
         SetControlFont(g_ui.detectThresholdLabel, g_ui.sectionFont);
         SetControlFont(g_ui.detectThresholdValue, g_ui.sectionFont);
-        SetControlFont(g_ui.resetThresholdLabel, g_ui.sectionFont);
-        SetControlFont(g_ui.resetThresholdValue, g_ui.sectionFont);
         SetControlFont(g_ui.cooldownLabel, g_ui.sectionFont);
         SetControlFont(g_ui.cooldownValue, g_ui.sectionFont);
         SetControlFont(g_ui.vizIpLabel, g_ui.sectionFont);
@@ -1355,31 +1005,20 @@ namespace
         SetControlFont(g_ui.settingsStatus, g_ui.sectionFont);
         SetControlFont(g_ui.templatePresetsLabel, g_ui.sectionFont);
         SetControlFont(g_ui.templateDetails, g_ui.sectionFont);
-        SetControlFont(g_ui.scorebugThresholdLabel, g_ui.sectionFont);
-        SetControlFont(g_ui.scorebugThresholdValue, g_ui.sectionFont);
-        SetControlFont(g_ui.scorebugPresetsLabel, g_ui.sectionFont);
-        SetControlFont(g_ui.scorebugDetails, g_ui.sectionFont);
 
         SetWindowTheme(g_ui.detectThresholdSlider, L"Explorer", nullptr);
-        SetWindowTheme(g_ui.resetThresholdSlider, L"Explorer", nullptr);
         SetWindowTheme(g_ui.cooldownSlider, L"Explorer", nullptr);
-        SetWindowTheme(g_ui.scorebugThresholdSlider, L"Explorer", nullptr);
         SetWindowTheme(g_ui.vizIpEdit, L"Explorer", nullptr);
         SetWindowTheme(g_ui.vizPortEdit, L"Explorer", nullptr);
         SetWindowTheme(g_ui.cmdOnEdit, L"Explorer", nullptr);
         SetWindowTheme(g_ui.cmdOffEdit, L"Explorer", nullptr);
         SetWindowTheme(g_ui.templatesList, L"Explorer", nullptr);
-        SetWindowTheme(g_ui.scorebugsList, L"Explorer", nullptr);
-        SetWindowTheme(g_ui.scorebugPropsList, L"Explorer", nullptr);
 
         SendMessageA(g_ui.detectThresholdSlider, TBM_SETRANGEMIN, FALSE, 10);
         SendMessageA(g_ui.detectThresholdSlider, TBM_SETRANGEMAX, TRUE, 99);
-        SendMessageA(g_ui.resetThresholdSlider, TBM_SETRANGEMIN, FALSE, 5);
-        SendMessageA(g_ui.resetThresholdSlider, TBM_SETRANGEMAX, TRUE, 95);
         SendMessageA(g_ui.cooldownSlider, TBM_SETRANGEMIN, FALSE, 100);
         SendMessageA(g_ui.cooldownSlider, TBM_SETRANGEMAX, TRUE, 10000);
-        SendMessageA(g_ui.scorebugThresholdSlider, TBM_SETRANGEMIN, FALSE, 10);
-        SendMessageA(g_ui.scorebugThresholdSlider, TBM_SETRANGEMAX, TRUE, 99);
+        CreateDetectionTooltips();
     }
 
     void RegisterWindowClasses(HINSTANCE instance)
@@ -1430,29 +1069,17 @@ namespace
 
         if (g_ui.settingsPanel.right > g_ui.settingsPanel.left)
             FillRoundedRect(hdc, g_ui.settingsPanel, AppBgColor(), CardBorderColor());
-
-        if (g_ui.currentSettingsTab == 3 && g_ui.settingsPanel.right > g_ui.settingsPanel.left)
-        {
-            RECT separator{
-                g_ui.settingsPanel.left + 16,
-                g_ui.settingsPanel.top + 48,
-                g_ui.settingsPanel.right - 16,
-                g_ui.settingsPanel.top + 49
-            };
-            HBRUSH brush = CreateSolidBrush(RGB(157, 169, 185));
-            FillRect(hdc, &separator, brush);
-            DeleteObject(brush);
-        }
     }
 }
 
-bool UI_Create(HWND hwnd, HINSTANCE instance, AppState& state)
+bool UI_Create(HWND hwnd, HINSTANCE instance, AppState& state, CueCommandContext& commands)
 {
     g_ui = {};
     g_ui.mainWindow = hwnd;
     g_ui.instance = instance;
     g_ui.state = &state;
-    g_ui.lastVizOk = state.lastVizOk;
+    g_ui.vizStatus = state.vizStatus;
+    g_ui.commands = &commands;
 
     RegisterWindowClasses(instance);
 
@@ -1485,13 +1112,13 @@ bool UI_Create(HWND hwnd, HINSTANCE instance, AppState& state)
     g_ui.deviceCombo = CreateControlA(0, "COMBOBOX", "", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, IDC_DEVICE_COMBO, hwnd);
     g_ui.templateLabel = CreateControlA(0, "STATIC", "Template", WS_CHILD | WS_VISIBLE, 0, hwnd);
     g_ui.templateCombo = CreateControlA(0, "COMBOBOX", "", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, IDC_TEMPLATE_COMBO, hwnd);
-    g_ui.rendererLabel = CreateControlA(0, "STATIC", "Connection:", WS_CHILD | WS_VISIBLE, 0, hwnd);
+    g_ui.rendererLabel = CreateControlA(0, "STATIC", "Renderer:", WS_CHILD | WS_VISIBLE, 0, hwnd);
     g_ui.rendererStatus = CreateControlA(0, "STATIC", "", WS_CHILD | WS_VISIBLE, IDC_RENDERER_STATUS, hwnd);
     g_ui.nextCueButton = CreateButtonA("", IDC_NEXT_CUE_BUTTON, hwnd, true);
+    g_ui.sendEventCommandButton = CreateButtonA("SEND EVENT COMMAND", IDC_SEND_EVENT_COMMAND_BUTTON, hwnd, true);
     g_ui.cuePreviewWindow = CreateControlA(0, "VideoAnalyzerCuePreviewWindow", "", WS_CHILD | WS_VISIBLE, IDC_CUE_PREVIEW_WINDOW, hwnd);
     g_ui.previewCheck = CreateControlA(0, "BUTTON", "Preview", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, IDC_PREVIEW_CHECK, hwnd);
     g_ui.previewWindow = CreateControlA(0, "VideoAnalyzerPreviewWindow", "", WS_CHILD | WS_VISIBLE, IDC_PREVIEW_WINDOW, hwnd);
-    g_ui.ocrStatusLabel = CreateControlA(0, "STATIC", "[OCR Disabled]", WS_CHILD | WS_VISIBLE | SS_LEFTNOWORDWRAP, 0, hwnd);
     g_ui.autoScrollCheck = CreateControlA(0, "BUTTON", "Auto-scroll", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, IDC_AUTOSCROLL_CHECK, hwnd);
     g_ui.clearLogButton = CreateButtonA("Clear", IDC_CLEAR_LOG_BUTTON, hwnd, true);
     g_ui.logEdit = CreateControlA(
@@ -1506,7 +1133,6 @@ bool UI_Create(HWND hwnd, HINSTANCE instance, AppState& state)
     SetControlFont(g_ui.templateLabel, g_ui.sectionFont);
     SetControlFont(g_ui.rendererLabel, g_ui.sectionFont);
     SetControlFont(g_ui.rendererStatus, g_ui.sectionFont);
-    SetControlFont(g_ui.ocrStatusLabel, g_ui.sectionFont);
 
     g_ui.settingsWindow = CreateWindowExA(
         WS_EX_APPWINDOW,
@@ -1556,6 +1182,12 @@ bool UI_Create(HWND hwnd, HINSTANCE instance, AppState& state)
 void UI_Destroy()
 {
     Renderer_ClearPreview();
+
+    if (g_ui.settingsTooltip)
+    {
+        DestroyWindow(g_ui.settingsTooltip);
+        g_ui.settingsTooltip = nullptr;
+    }
 
     if (g_ui.settingsWindow)
     {
@@ -1651,9 +1283,15 @@ bool UI_HandleMainCommand(WPARAM wParam, LPARAM, AppState& state)
         break;
 
     case IDC_NEXT_CUE_BUTTON:
+        if (state.vizSendPending) return true;
         Detection_FlipCue(state);
         UpdateNextCueButton(state);
         UpdateCuePreview(state);
+        return true;
+
+    case IDC_SEND_EVENT_COMMAND_BUTTON:
+        Cue_SendEventCommand(*g_ui.commands, state);
+        UI_SyncState(state);
         return true;
 
     case IDC_PREVIEW_CHECK:
@@ -1668,7 +1306,7 @@ bool UI_HandleMainCommand(WPARAM wParam, LPARAM, AppState& state)
         return true;
 
     case IDC_CLEAR_LOG_BUTTON:
-        g_logs.clear();
+        Logger_Clear();
         g_ui.lastLogCount = 0;
         g_ui.lastLogTail.clear();
         SetWindowTextA(g_ui.logEdit, "");
@@ -1691,9 +1329,7 @@ HBRUSH UI_HandleCtlColor(HDC hdc, HWND control)
         control == g_ui.vizPortEdit ||
         control == g_ui.cmdOnEdit ||
         control == g_ui.cmdOffEdit ||
-        control == g_ui.templatesList ||
-        control == g_ui.scorebugsList ||
-        control == g_ui.scorebugPropsList)
+        control == g_ui.templatesList)
     {
         SetBkMode(hdc, OPAQUE);
         SetBkColor(hdc, AppBgColor());
@@ -1704,7 +1340,8 @@ HBRUSH UI_HandleCtlColor(HDC hdc, HWND control)
     if (control == g_ui.rendererStatus || control == g_ui.settingsStatus)
     {
         SetBkMode(hdc, TRANSPARENT);
-        SetTextColor(hdc, g_ui.lastVizOk ? SuccessColor() : DangerColor());
+        SetTextColor(hdc, g_ui.vizStatus == VizSendStatus::Succeeded ? SuccessColor() :
+            g_ui.vizStatus == VizSendStatus::Failed ? DangerColor() : MutedTextColor());
         return (control == g_ui.settingsStatus) ? g_ui.panelBrush : g_ui.appBrush;
     }
 
@@ -1715,7 +1352,7 @@ HBRUSH UI_HandleCtlColor(HDC hdc, HWND control)
         return g_ui.cardBrush;
     }
 
-    if (control == g_ui.detectionEnabledCheck || control == g_ui.scorebugEnabledCheck)
+    if (control == g_ui.detectionEnabledCheck)
     {
         SetBkMode(hdc, TRANSPARENT);
         SetTextColor(hdc, BodyTextColor());
@@ -1724,28 +1361,21 @@ HBRUSH UI_HandleCtlColor(HDC hdc, HWND control)
 
     if (control == g_ui.deviceLabel ||
         control == g_ui.templateLabel ||
-        control == g_ui.ocrStatusLabel ||
         control == g_ui.rendererLabel ||
         control == g_ui.detectThresholdLabel ||
         control == g_ui.detectThresholdValue ||
-        control == g_ui.resetThresholdLabel ||
-        control == g_ui.resetThresholdValue ||
         control == g_ui.cooldownLabel ||
         control == g_ui.cooldownValue ||
         control == g_ui.templatePresetsLabel ||
-        control == g_ui.scorebugThresholdLabel ||
-        control == g_ui.scorebugThresholdValue ||
-        control == g_ui.scorebugPresetsLabel ||
         control == g_ui.vizIpLabel ||
         control == g_ui.vizPortLabel ||
         control == g_ui.cmdOnLabel ||
         control == g_ui.cmdOffLabel ||
-        control == g_ui.templateDetails ||
-        control == g_ui.scorebugDetails)
+        control == g_ui.templateDetails)
     {
         SetBkMode(hdc, TRANSPARENT);
         SetTextColor(hdc, BodyTextColor());
-        if (control == g_ui.deviceLabel || control == g_ui.templateLabel || control == g_ui.ocrStatusLabel)
+        if (control == g_ui.deviceLabel || control == g_ui.templateLabel)
             return g_ui.cardBrush;
         if (control == g_ui.rendererLabel)
             return g_ui.appBrush;
@@ -1773,12 +1403,10 @@ bool UI_HandleDrawItem(const DRAWITEMSTRUCT& drawItem, const AppState& state)
     case IDC_SETTINGS_TAB_DETECTION:
     case IDC_SETTINGS_TAB_ENGINE:
     case IDC_SETTINGS_TAB_TEMPLATES:
-    case IDC_SETTINGS_TAB_SCOREBUG:
     {
         const int tabIndex =
             drawItem.CtlID == IDC_SETTINGS_TAB_DETECTION ? 0 :
-            drawItem.CtlID == IDC_SETTINGS_TAB_ENGINE ? 1 :
-            drawItem.CtlID == IDC_SETTINGS_TAB_TEMPLATES ? 2 : 3;
+            drawItem.CtlID == IDC_SETTINGS_TAB_ENGINE ? 1 : 2;
         const bool activeTab = g_ui.currentSettingsTab == tabIndex;
         fill = activeTab ? CardBgColor() : AppBgColor();
         border = activeTab ? CardBorderColor() : RGB(206, 216, 227);
@@ -1795,10 +1423,6 @@ bool UI_HandleDrawItem(const DRAWITEMSTRUCT& drawItem, const AppState& state)
     case IDC_TEMPLATE_EDIT_BUTTON:
     case IDC_TEMPLATE_DELETE_BUTTON:
     case IDC_TEMPLATE_ACTIVATE_BUTTON:
-    case IDC_SCOREBUG_NEW_BUTTON:
-    case IDC_SCOREBUG_EDIT_BUTTON:
-    case IDC_SCOREBUG_DELETE_BUTTON:
-    case IDC_SCOREBUG_ACTIVATE_BUTTON:
         fill = hot ? RGB(241, 245, 249) : RGB(255, 255, 255);
         border = hot ? RGB(180, 192, 208) : RGB(203, 213, 225);
         text = BodyTextColor();
@@ -1809,6 +1433,7 @@ bool UI_HandleDrawItem(const DRAWITEMSTRUCT& drawItem, const AppState& state)
         text = RGB(255, 255, 255);
         break;
     case IDC_NEXT_CUE_BUTTON:
+    case IDC_SEND_EVENT_COMMAND_BUTTON:
         if (state.cueState == CueState::WIPER_IN)
         {
             fill = hot ? RGB(22, 101, 192) : AccentColor();
@@ -1845,14 +1470,13 @@ bool UI_HandleDrawItem(const DRAWITEMSTRUCT& drawItem, const AppState& state)
     HFONT oldFont = reinterpret_cast<HFONT>(SelectObject(
         hdc,
         (drawItem.CtlID == IDC_SETTINGS_BUTTON || drawItem.CtlID == IDC_SETTINGS_TAB_DETECTION ||
-         drawItem.CtlID == IDC_SETTINGS_TAB_ENGINE || drawItem.CtlID == IDC_SETTINGS_TAB_TEMPLATES ||
-         drawItem.CtlID == IDC_SETTINGS_TAB_SCOREBUG)
+         drawItem.CtlID == IDC_SETTINGS_TAB_ENGINE || drawItem.CtlID == IDC_SETTINGS_TAB_TEMPLATES)
             ? g_ui.font
             : (g_ui.sectionFont ? g_ui.sectionFont : g_ui.font)));
 
     wchar_t caption[256] = {};
     GetWindowTextW(drawItem.hwndItem, caption, static_cast<int>(std::size(caption)));
-    if (drawItem.CtlID == IDC_NEXT_CUE_BUTTON)
+    if (drawItem.CtlID == IDC_NEXT_CUE_BUTTON || drawItem.CtlID == IDC_SEND_EVENT_COMMAND_BUTTON)
     {
         RECT textRect = rect;
         InflateRect(&textRect, -8, -8);
@@ -1904,14 +1528,11 @@ void UI_SyncState(const AppState& state)
 {
     SetCheckState(g_ui.previewCheck, state.previewEnabled);
     SetCheckState(g_ui.autoScrollCheck, state.autoScrollLog);
-    SetWindowTextIfChanged(g_ui.ocrStatusLabel, BuildMainOcrStatusText(state));
     UpdateRendererStatus(state);
     UpdateNextCueButton(state);
     UpdateCuePreview(state);
     UpdateDeviceList(state);
     UpdateTemplateControls(state);
-    if (g_ui.settingsWindow && IsWindowVisible(g_ui.settingsWindow))
-        UpdateScorebugControls(state);
     UpdateLogView(state);
 }
 
@@ -1992,7 +1613,6 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
         {
             SyncSettingsFromState(*g_ui.state);
             UpdateTemplateControls(*g_ui.state);
-            UpdateScorebugControls(*g_ui.state);
         }
         break;
 
@@ -2017,59 +1637,11 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
         case IDC_SETTINGS_TAB_TEMPLATES:
             ShowSettingsTab(2);
             return 0;
-        case IDC_SETTINGS_TAB_SCOREBUG:
-            ShowSettingsTab(3);
-            return 0;
         case IDC_TEMPLATES_LIST:
             if (HIWORD(wParam) == LBN_SELCHANGE && g_ui.state)
             {
                 g_ui.templateSelectionName = GetSelectedTemplateNameFromList();
                 UpdateTemplateDetails(*g_ui.state);
-                return 0;
-            }
-            break;
-        case IDC_SCOREBUGS_LIST:
-            if (!g_ui.state)
-                break;
-            if (HIWORD(wParam) == LBN_SELCHANGE)
-            {
-                g_ui.scorebugSelectionName = GetSelectedScorebugNameFromList();
-                g_ui.scorebugPropSelectionName.clear();
-                UpdateScorebugControls(*g_ui.state);
-                return 0;
-            }
-            if (HIWORD(wParam) == LBN_DBLCLK)
-            {
-                const std::string selectedName = GetSelectedScorebugNameFromList();
-                if (const OcrElementManifest* element = Scorebug_FindLayoutByName(*g_ui.state, selectedName))
-                    RunScorebugEditor(*g_ui.state, element, selectedName);
-                return 0;
-            }
-            break;
-        case IDC_SCOREBUG_PROPS_LIST:
-            if (!g_ui.state)
-                break;
-            if (HIWORD(wParam) == LBN_SELCHANGE)
-            {
-                g_ui.scorebugPropSelectionName = GetSelectedScorebugPropNameFromList();
-                UpdateScorebugControls(*g_ui.state);
-                return 0;
-            }
-            if (HIWORD(wParam) == LBN_DBLCLK)
-            {
-                const std::string selectedName = GetSelectedScorebugNameFromList();
-                const std::string propName = GetSelectedScorebugPropNameFromList();
-                if (const OcrElementManifest* element = Scorebug_FindLayoutByName(*g_ui.state, selectedName))
-                {
-                    for (const auto& prop : element->props)
-                    {
-                        if (prop.name == propName)
-                        {
-                            RunScorebugPropEditor(*g_ui.state, *element, &prop, propName);
-                            break;
-                        }
-                    }
-                }
                 return 0;
             }
             break;
@@ -2112,41 +1684,10 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
                 }
             }
             break;
-        case IDC_SCOREBUG_NEW_BUTTON:
-            if (g_ui.state)
-            {
-                RunScorebugEditor(*g_ui.state, nullptr, "");
-                return 0;
-            }
-            break;
-        case IDC_SCOREBUG_EDIT_BUTTON:
-            if (g_ui.state)
-            {
-                const std::string elementName = GetSelectedScorebugNameFromList();
-                if (const OcrElementManifest* element = Scorebug_FindLayoutByName(*g_ui.state, elementName))
-                    RunScorebugPropEditor(*g_ui.state, *element, nullptr, "");
-                return 0;
-            }
-            break;
-        case IDC_SCOREBUG_DELETE_BUTTON:
-            if (g_ui.state)
-            {
-                DeleteSelectedScorebug(*g_ui.state);
-                return 0;
-            }
-            break;
-        case IDC_SCOREBUG_ACTIVATE_BUTTON:
-            if (g_ui.state)
-            {
-                DeleteSelectedScorebugProp(*g_ui.state);
-                return 0;
-            }
-            break;
         }
         if (LOWORD(wParam) == IDC_SETTINGS_SAVE_BUTTON && g_ui.state)
         {
             SaveSettingsToState(*g_ui.state);
-            Scorebug_SetActiveLayout(*g_ui.state, g_ui.state->activeOcrElementName);
             Config_Save(*g_ui.state);
             SyncSettingsFromState(*g_ui.state);
             UI_SyncState(*g_ui.state);
@@ -2156,15 +1697,9 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
 
     case WM_HSCROLL:
         if (reinterpret_cast<HWND>(lParam) == g_ui.detectThresholdSlider ||
-            reinterpret_cast<HWND>(lParam) == g_ui.resetThresholdSlider ||
             reinterpret_cast<HWND>(lParam) == g_ui.cooldownSlider)
         {
             UpdateDetectionSliderLabels();
-            return 0;
-        }
-        if (reinterpret_cast<HWND>(lParam) == g_ui.scorebugThresholdSlider)
-        {
-            UpdateScorebugSliderLabel();
             return 0;
         }
         break;
@@ -2181,6 +1716,7 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
     }
 
     case WM_CLOSE:
+        SendMessageW(g_ui.settingsTooltip, TTM_POP, 0, 0);
         ShowWindow(hwnd, SW_HIDE);
         return 0;
     }

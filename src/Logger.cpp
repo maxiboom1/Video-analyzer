@@ -2,14 +2,32 @@
 #include <chrono>
 #include <iomanip>
 #include <sstream>
+#include <mutex>
 
-std::vector<std::string> g_logs;
+namespace
+{
+    std::vector<std::string> g_logs;
+    std::mutex logMutex;
+}
 
 void AddLog(const std::string& text)
 {
+    std::lock_guard<std::mutex> lock(logMutex);
     g_logs.push_back(text);
     if (g_logs.size() > 500)
         g_logs.erase(g_logs.begin());
+}
+
+std::vector<std::string> Logger_Snapshot()
+{
+    std::lock_guard<std::mutex> lock(logMutex);
+    return g_logs;
+}
+
+void Logger_Clear()
+{
+    std::lock_guard<std::mutex> lock(logMutex);
+    g_logs.clear();
 }
 
 std::string CurrentTimestamp()

@@ -144,11 +144,11 @@
   <ItemGroup>
     <ClCompile Include="src\BlackmagicSource.cpp" />
     <ClCompile Include="src\Config.cpp" />
+    <ClCompile Include="src\CueCommands.cpp" />
     <ClCompile Include="src\Detection.cpp" />
     <ClCompile Include="src\Logger.cpp" />
     <ClCompile Include="src\Renderer.cpp" />
-    <ClCompile Include="src\Scorebug.cpp" />
-    <ClCompile Include="src\ScorebugDialogs.cpp" />
+    <ClCompile Include="src\StartupAuth.cpp" />
     <ClCompile Include="src\TemplateDialogs.cpp" />
     <ClCompile Include="src\Templates.cpp" />
     <ClCompile Include="src\VideoSource.cpp" />
@@ -160,20 +160,25 @@
     <ClInclude Include="include\AppState.h" />
     <ClInclude Include="include\BlackmagicSource.h" />
     <ClInclude Include="include\Config.h" />
+    <ClInclude Include="include\CueCommands.h" />
     <ClInclude Include="include\Detection.h" />
     <ClInclude Include="include\Logger.h" />
     <ClInclude Include="include\Renderer.h" />
-    <ClInclude Include="include\Scorebug.h" />
-    <ClInclude Include="include\ScorebugDialogs.h" />
+    <ClInclude Include="include\Resources.h" />
+    <ClInclude Include="include\StartupAuth.h" />
     <ClInclude Include="include\TemplateDialogs.h" />
     <ClInclude Include="include\Templates.h" />
     <ClInclude Include="include\UI.h" />
     <ClInclude Include="include\Version.h" />
     <ClInclude Include="include\VideoSource.h" />
     <ClInclude Include="include\VizConnection.h" />
+    <ClInclude Include="include\VizSocketOps.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="$(BlackmagicSdkDir)DeckLinkAPI_i.c" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="resources\VideoAnalyzer.rc" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

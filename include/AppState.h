@@ -3,7 +3,6 @@
 #include <chrono>
 #include <string>
 #include <vector>
-#include "Scorebug.h"
 #include "Templates.h"
 
 // -----------------------------------------------------------------------
@@ -20,6 +19,7 @@ extern int WORK_H;
 enum class CueState { WIPER_IN, WIPER_OUT };
 enum class DetectionState { IDLE, DETECTED, COOLDOWN };
 enum class VideoSourceKind { Webcam = 0, Blackmagic = 1 };
+enum class VizSendStatus { NotTested, Sending, Succeeded, Failed };
 
 struct VideoDeviceInfo
 {
@@ -97,15 +97,8 @@ struct AppState
     char    cmdOff[256] = "RENDERER*MAIN_LAYER*STAGE*DIRECTOR*GFX_OFF GOTO_TRIO $O $A";
 
     // --- Last Viz send result ---
-    bool    lastVizOk = true;
+    VizSendStatus vizStatus = VizSendStatus::NotTested;
+    bool vizSendPending = false;
+    unsigned long long vizDestinationRevision = 0;
     std::string lastVizMsg;
-
-    // --- OCR elements ---
-    std::vector<OcrElementManifest> ocrElements;
-    std::string activeOcrElementName;
-    OcrElementState lastOcrState;
-    bool ocrEnabled = true;
-    float ocrDetectThreshold = 0.70f;
-    double lastOcrPresenceScore = 0.0;
-    bool ocrOnAir = false;
 };

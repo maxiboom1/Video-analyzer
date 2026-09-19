@@ -73,19 +73,6 @@ static void RenderSettingsWindow(AppState& state, bool& saveRequested)
 
             ImGui::Spacing();
 
-            ImGui::Text("Reset Threshold");
-            ImGui::SameLine(180);
-            ImGui::SetNextItemWidth(220);
-            ImGui::SliderFloat("##reset_thr", &state.resetThreshold,
-                               0.05f, 0.95f, "%.2f");
-            ImGui::SameLine();
-            ImGui::TextDisabled("(?)");
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Score must drop below this value before another detection can fire.");
-
-            ImGui::Spacing();
-
             ImGui::Text("Cooldown (ms)");
             ImGui::SameLine(180);
             ImGui::SetNextItemWidth(220);
@@ -101,8 +88,8 @@ static void RenderSettingsWindow(AppState& state, bool& saveRequested)
             ImGui::Spacing();
 
             ImGui::TextColored(ColorDim(),
-                "Detect >= %.2f   |   Reset < %.2f   |   Cooldown %d ms",
-                state.detectThreshold, state.resetThreshold, state.cooldownMs);
+                "Detect >= %.2f   |   Cooldown %d ms",
+                state.detectThreshold, state.cooldownMs);
 
             ImGui::EndTabItem();
         }
@@ -148,10 +135,10 @@ static void RenderSettingsWindow(AppState& state, bool& saveRequested)
             ImGui::Text("Status");
             ImGui::SameLine(150);
             ImGui::TextColored(
-                state.lastVizOk ? ColorOk() : ColorErr(),
+                (state.vizStatus == VizSendStatus::Succeeded) ? ColorOk() : ColorErr(),
                 "%s:%d  [%s]",
                 state.vizIp, state.vizPort,
-                state.lastVizOk ? "OK" : state.lastVizMsg.c_str());
+                (state.vizStatus == VizSendStatus::Succeeded) ? "Last send succeeded" : (state.vizStatus == VizSendStatus::NotTested ? "Not tested" : state.lastVizMsg.c_str()));
 
             ImGui::Spacing();
             ImGui::Spacing();
@@ -276,10 +263,10 @@ bool UI_Render(AppState& state, bool previewTextureReady)
             ImGui::Text("Renderer");
             ImGui::SameLine(110);
             ImGui::TextColored(
-                state.lastVizOk ? ColorOk() : ColorErr(),
+                (state.vizStatus == VizSendStatus::Succeeded) ? ColorOk() : ColorErr(),
                 "%s:%d  [%s]",
                 state.vizIp, state.vizPort,
-                state.lastVizOk ? "Connected" : state.lastVizMsg.c_str());
+                (state.vizStatus == VizSendStatus::Succeeded) ? "Last send succeeded" : (state.vizStatus == VizSendStatus::NotTested ? "Not tested" : state.lastVizMsg.c_str()));
 
             bool inCue   = (state.cueState == CueState::WIPER_IN);
             float btnW   = 260.0f;
@@ -344,12 +331,12 @@ bool UI_Render(AppState& state, bool previewTextureReady)
     {
         ImGui::Checkbox("Auto-scroll", &state.autoScrollLog);
         ImGui::SameLine();
-        if (ImGui::Button("Clear")) g_logs.clear();
+        if (ImGui::Button("Clear")) Logger_Clear();
         ImGui::Separator();
 
         ImGui::BeginChild("##loglines", ImVec2(0, 0), false,
                           ImGuiWindowFlags_HorizontalScrollbar);
-        for (const auto& line : g_logs)
+        for (const auto& line : Logger_Snapshot())
             ImGui::TextUnformatted(line.c_str());
 
         if (state.autoScrollLog &&

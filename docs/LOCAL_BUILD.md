@@ -1,18 +1,14 @@
 # Local Windows build
 
-## Source baseline
+## Current version
 
-Version `1.0.6` builds on the reconstructed `1.0.4` and password-protected `1.0.5`, starting from upstream commit
-`b8fb25b2fc6e582e80325122a2273a1fbf894a7e` (previously version `2.1.0`), on
-branch `work/1.0.6`. All OCR processing, configuration, settings controls,
-editors, and build entries have been removed. No Tesseract dependency is required.
-The newer Templates settings layout, change-aware status labels, and cue preview
-caching are retained. Version `1.0.5` adds the startup password gate and manual
-event-command button. Version `1.0.6` adds bounded background sends, synchronized
-logging, capture retry backoff, accurate send status, uppercase button text,
-Detection tooltips, and hides the inactive Reset Threshold setting.
-Versions `1.0.4` and `1.0.5` describe the local reconstruction steps; they were not
-upstream releases. Version `1.0.6` is maintained on `work/1.0.6`.
+Version `1.0.6` on `main` is the supported baseline for all future development.
+Use `main` when cloning or updating this project.
+
+The application includes a startup password gate, Blackmagic and webcam capture,
+template detection, a manual event-command button, bounded background renderer
+sends, synchronized logging, capture retry backoff, and Detection setting tooltips.
+Reset Threshold is hidden because it has no effect in the current detection flow.
 
 ## Prerequisites
 

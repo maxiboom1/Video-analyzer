@@ -7,9 +7,10 @@ It monitors a selected video source, runs template-based image detection against
 an active `IN` / `OUT` template pair, and sends Viz engine commands when the cue
 state changes.
 
-Version `1.0.6` adds bounded background renderer sending, thread-safe logs,
-capture retry delays, and Detection setting tooltips to the password-protected
-`1.0.5` baseline. It retains Blackmagic capture and the existing detection behavior.
+Version `1.0.6` is the current supported baseline on `main`. All future development
+continues from this version. It includes startup authentication, Blackmagic capture,
+template detection, manual event commands, bounded background renderer sending,
+thread-safe logs, capture retry delays, and Detection setting tooltips.
 
 ## Startup Password
 
@@ -206,9 +207,7 @@ All runtime files are loaded from the executable directory.
 
 ### 1.0.4
 
-- rebuilt from the latest upstream source, retaining its non-OCR improvements
-- removed OCR processing, element/property editors, configuration, and dependencies
-- removed the OCR settings tab and live status line; restored the full preview area
+- established the template-detection application with a full video preview area
 - retained the Templates tab's Detection Presets heading, top-right details, and bottom action row
 - retained change-aware connection/cue labels and cached cue preview rendering
 - set all application titles, headers, and log banners to version `1.0.4`
